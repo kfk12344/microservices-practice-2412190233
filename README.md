@@ -1,7 +1,7 @@
-﻿# 个人健康饮食记录管理系统 (Health & Diet Tracker)
+# 个人健康饮食记录管理系统 (Health & Diet Tracker)
 
 > 课程：微服务实践 · 学号 2412190233 · 姓名 郑俊豪
-> 仓库：<https://github.com/你的用户名/microservices-practice-2412190233>
+> 仓库：<https://github.com/kfk12344/microservices-practice-2412190233>
 > 当前进度：Week 02 选题与功能规划 → Week 03 Spring Boot 工程起步 → **Week 04 业务建模 + REST 接口 + MySQL 持久化**
 
 ---
