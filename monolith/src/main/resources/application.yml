@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: health-diet-tracker
+
+  # ---------------------------------------------------------------------------
+  # 数据库连接（MySQL）
+  #
+  # 建库语句见 docs/database.md 与 src/main/resources/schema.sql：
+  #     CREATE DATABASE health_diet DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  #
+  # 密码通过环境变量 MYSQL_PASSWORD 注入，避免把明文口令提交到公开仓库。
+  # 本机默认口令为空字符串，只有你的 MySQL 设了密码时才需要设置该变量。
+  # ---------------------------------------------------------------------------
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/health_diet?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    # 表结构由 schema.sql 显式维护（便于数据库设计文档与实际 DDL 保持一致），
+    # 因此这里关闭 Hibernate 自动建表，避免两套 DDL 互相打架。
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: true
+
+  # schema.sql 建表 + data.sql 灌入可重复执行的测试数据
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+
+# 注意：Spring Boot 4 使用 Jackson 3，其属性名与 Jackson 2 不同。
+# 日期序列化在 Boot 中默认就是 ISO-8601、null 字段默认也不省略，
+# 因此这里不额外配置 spring.jackson，避免出现"属性无法绑定"的启动失败。
+
+server:
+  port: 8080
+
+# ---------------------------------------------------------------------------
+# 说明：为保证 README 中"克隆即可演示"的可复现性，这里只暴露 health 端点，
+# 不开放 env / beans 等可能泄露配置细节的端点。
+# ---------------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.zjgsu.hdt: INFO

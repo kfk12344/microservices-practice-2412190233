@@ -1,0 +1,699 @@
+个人健康饮食记录管理系统 —— 接口响应采集记录
+采集时间：2026-10-12 13:14:28
+目标地址：http://localhost:8080
+采集方式：curl.exe 真实发起 HTTP 请求；响应体为原始返回内容
+==============================================================================
+
+### Week 03 · 运行状态验证接口
+$ curl -X GET http://localhost:8080/api/hello
+HTTP 200
+{
+  "application": "health-diet-tracker",
+  "message": "个人健康饮食记录管理系统已启动",
+  "timestamp": "2026-10-12 13:14:28"
+}
+
+### Week 03 · 健康检查
+$ curl -X GET http://localhost:8080/actuator/health
+HTTP 200
+{
+  "components": {
+    "db": {
+      "details": {
+        "database": "H2",
+        "validationQuery": "isValid()"
+      },
+      "status": "UP"
+    },
+    "diskSpace": {
+      "details": {
+        "total": 322123591680,
+        "free": 82528591872,
+        "threshold": 10485760,
+        "path": "C:\\Users\\31238\\Documents\\deepseek-harness\\default-workspace\\_repo-build\\microservices-practice-2412190233-main\\monolith\\.",
+        "exists": true
+      },
+      "status": "UP"
+    },
+    "livenessState": {
+      "status": "UP"
+    },
+    "ping": {
+      "status": "UP"
+    },
+    "readinessState": {
+      "status": "UP"
+    },
+    "ssl": {
+      "details": {
+        "expiringChains": [],
+        "invalidChains": [],
+        "validChains": []
+      },
+      "status": "UP"
+    }
+  },
+  "groups": [
+    "liveness",
+    "readiness"
+  ],
+  "status": "UP"
+}
+
+### Week 04 · 食物库（前 3 条由 script 截取）
+$ curl -X GET http://localhost:8080/api/foods
+HTTP 200
+[
+  {
+    "id": 8,
+    "name": "三文鱼",
+    "category": "蛋白质",
+    "caloriesPer100g": 208.0,
+    "proteinPer100g": 20.4,
+    "fatPer100g": 13.4,
+    "carbsPer100g": 0.0
+  },
+  {
+    "id": 2,
+    "name": "全麦面包",
+    "category": "主食",
+    "caloriesPer100g": 246.0,
+    "proteinPer100g": 9.0,
+    "fatPer100g": 3.4,
+    "carbsPer100g": 44.0
+  },
+  {
+    "id": 11,
+    "name": "无糖酸奶",
+    "category": "饮品",
+    "caloriesPer100g": 72.0,
+    "proteinPer100g": 3.5,
+    "fatPer100g": 3.3,
+    "carbsPer100g": 7.0
+  }
+]
+
+### Week 04 · 食物分类
+$ curl -X GET http://localhost:8080/api/foods/categories
+HTTP 200
+[
+  "主食",
+  "水果",
+  "蔬菜",
+  "蛋白质",
+  "零食",
+  "饮品"
+]
+
+### Week 04 · 某人的全部饮食记录
+$ curl -X GET http://localhost:8080/api/meals?eater=demo-user
+HTTP 200
+[
+  {
+    "id": 3,
+    "eater": "demo-user",
+    "mealType": "DINNER",
+    "mealTypeLabel": "晚餐",
+    "eatenAt": "2026-09-28T19:00:00",
+    "note": "清淡晚餐",
+    "items": [
+      {
+        "foodId": 5,
+        "name": "西兰花",
+        "category": "蔬菜",
+        "portionGrams": 100,
+        "calories": 34.0,
+        "protein": 2.8,
+        "fat": 0.4,
+        "carbs": 6.6
+      },
+      {
+        "foodId": 8,
+        "name": "三文鱼",
+        "category": "蛋白质",
+        "portionGrams": 120,
+        "calories": 249.6,
+        "protein": 24.48,
+        "fat": 16.08,
+        "carbs": 0.0
+      },
+      {
+        "foodId": 10,
+        "name": "红薯",
+        "category": "主食",
+        "portionGrams": 200,
+        "calories": 172.0,
+        "protein": 3.2,
+        "fat": 0.2,
+        "carbs": 40.2
+      }
+    ],
+    "totalCalories": 455.6,
+    "totalProtein": 30.48,
+    "totalFat": 16.68,
+    "totalCarbs": 46.8,
+    "totalGrams": 420
+  },
+  {
+    "id": 4,
+    "eater": "demo-user",
+    "mealType": "SNACK",
+    "mealTypeLabel": "加餐",
+    "eatenAt": "2026-09-28T16:00:00",
+    "note": "下午加餐",
+    "items": [
+      {
+        "foodId": 6,
+        "name": "苹果",
+        "category": "水果",
+        "portionGrams": 150,
+        "calories": 78.0,
+        "protein": 0.3,
+        "fat": 0.3,
+        "carbs": 20.25
+      },
+      {
+        "foodId": 11,
+        "name": "无糖酸奶",
+        "category": "饮品",
+        "portionGrams": 100,
+        "calories": 72.0,
+        "protein": 3.5,
+        "fat": 3.3,
+        "carbs": 7.0
+      }
+    ],
+    "totalCalories": 150.0,
+    "totalProtein": 3.8,
+    "totalFat": 3.6,
+    "totalCarbs": 27.25,
+    "totalGrams": 250
+  },
+  {
+    "id": 2,
+    "eater": "demo-user",
+    "mealType": "LUNCH",
+    "mealTypeLabel": "午餐",
+    "eatenAt": "2026-09-28T12:30:00",
+    "note": "工作餐",
+    "items": [
+      {
+        "foodId": 1,
+        "name": "米饭",
+        "category": "主食",
+        "portionGrams": 200,
+        "calories": 232.0,
+        "protein": 5.2,
+        "fat": 0.6,
+        "carbs": 51.8
+      },
+      {
+        "foodId": 3,
+        "name": "鸡胸肉",
+        "category": "蛋白质",
+        "portionGrams": 150,
+        "calories": 199.5,
+        "protein": 36.9,
+        "fat": 3.75,
+        "carbs": 0.9
+      },
+      {
+        "foodId": 5,
+        "name": "西兰花",
+        "category": "蔬菜",
+        "portionGrams": 150,
+        "calories": 51.0,
+        "protein": 4.2,
+        "fat": 0.6,
+        "carbs": 9.9
+      }
+    ],
+    "totalCalories": 482.5,
+    "totalProtein": 46.3,
+    "totalFat": 4.95,
+    "totalCarbs": 62.6,
+    "totalGrams": 500
+  },
+  {
+    "id": 1,
+    "eater": "demo-user",
+    "mealType": "BREAKFAST",
+    "mealTypeLabel": "早餐",
+    "eatenAt": "2026-09-28T08:00:00",
+    "note": "标准早餐",
+    "items": [
+      {
+        "foodId": 2,
+        "name": "全麦面包",
+        "category": "主食",
+        "portionGrams": 80,
+        "calories": 196.8,
+        "protein": 7.2,
+        "fat": 2.72,
+        "carbs": 35.2
+      },
+      {
+        "foodId": 4,
+        "name": "水煮蛋",
+        "category": "蛋白质",
+        "portionGrams": 50,
+        "calories": 77.5,
+        "protein": 6.5,
+        "fat": 5.5,
+        "carbs": 0.55
+      },
+      {
+        "foodId": 7,
+        "name": "牛奶",
+        "category": "饮品",
+        "portionGrams": 250,
+        "calories": 135.0,
+        "protein": 7.5,
+        "fat": 8.0,
+        "carbs": 8.5
+      }
+    ],
+    "totalCalories": 409.3,
+    "totalProtein": 21.2,
+    "totalFat": 16.22,
+    "totalCarbs": 44.25,
+    "totalGrams": 380
+  }
+]
+
+### Week 04 · 单条记录明细
+$ curl -X GET http://localhost:8080/api/meals/2
+HTTP 200
+{
+  "id": 2,
+  "eater": "demo-user",
+  "mealType": "LUNCH",
+  "mealTypeLabel": "午餐",
+  "eatenAt": "2026-09-28T12:30:00",
+  "note": "工作餐",
+  "items": [
+    {
+      "foodId": 1,
+      "name": "米饭",
+      "category": "主食",
+      "portionGrams": 200,
+      "calories": 232.0,
+      "protein": 5.2,
+      "fat": 0.6,
+      "carbs": 51.8
+    },
+    {
+      "foodId": 3,
+      "name": "鸡胸肉",
+      "category": "蛋白质",
+      "portionGrams": 150,
+      "calories": 199.5,
+      "protein": 36.9,
+      "fat": 3.75,
+      "carbs": 0.9
+    },
+    {
+      "foodId": 5,
+      "name": "西兰花",
+      "category": "蔬菜",
+      "portionGrams": 150,
+      "calories": 51.0,
+      "protein": 4.2,
+      "fat": 0.6,
+      "carbs": 9.9
+    }
+  ],
+  "totalCalories": 482.5,
+  "totalProtein": 46.3,
+  "totalFat": 4.95,
+  "totalCarbs": 62.6,
+  "totalGrams": 500
+}
+
+### Week 04 · 某日热量汇总
+$ curl -X GET http://localhost:8080/api/meals/daily-summary?eater=demo-user&date=2026-09-28
+HTTP 200
+{
+  "date": "2026-09-28",
+  "eater": "demo-user",
+  "mealCount": 4,
+  "totalCalories": 1497.4,
+  "totalProtein": 101.78,
+  "totalFat": 41.45,
+  "totalCarbs": 180.9,
+  "totalGrams": 1550,
+  "byMealType": [
+    {
+      "mealType": "BREAKFAST",
+      "mealTypeLabel": "早餐",
+      "count": 1,
+      "calories": 409.3
+    },
+    {
+      "mealType": "LUNCH",
+      "mealTypeLabel": "午餐",
+      "count": 1,
+      "calories": 482.5
+    },
+    {
+      "mealType": "DINNER",
+      "mealTypeLabel": "晚餐",
+      "count": 1,
+      "calories": 455.6
+    },
+    {
+      "mealType": "SNACK",
+      "mealTypeLabel": "加餐",
+      "count": 1,
+      "calories": 150.0
+    }
+  ],
+  "singleMealLimit": 1500,
+  "meals": [
+    {
+      "id": 3,
+      "eater": "demo-user",
+      "mealType": "DINNER",
+      "mealTypeLabel": "晚餐",
+      "eatenAt": "2026-09-28T19:00:00",
+      "note": "清淡晚餐",
+      "items": [
+        {
+          "foodId": 5,
+          "name": "西兰花",
+          "category": "蔬菜",
+          "portionGrams": 100,
+          "calories": 34.0,
+          "protein": 2.8,
+          "fat": 0.4,
+          "carbs": 6.6
+        },
+        {
+          "foodId": 8,
+          "name": "三文鱼",
+          "category": "蛋白质",
+          "portionGrams": 120,
+          "calories": 249.6,
+          "protein": 24.48,
+          "fat": 16.08,
+          "carbs": 0.0
+        },
+        {
+          "foodId": 10,
+          "name": "红薯",
+          "category": "主食",
+          "portionGrams": 200,
+          "calories": 172.0,
+          "protein": 3.2,
+          "fat": 0.2,
+          "carbs": 40.2
+        }
+      ],
+      "totalCalories": 455.6,
+      "totalProtein": 30.48,
+      "totalFat": 16.68,
+      "totalCarbs": 46.8,
+      "totalGrams": 420
+    },
+    {
+      "id": 4,
+      "eater": "demo-user",
+      "mealType": "SNACK",
+      "mealTypeLabel": "加餐",
+      "eatenAt": "2026-09-28T16:00:00",
+      "note": "下午加餐",
+      "items": [
+        {
+          "foodId": 6,
+          "name": "苹果",
+          "category": "水果",
+          "portionGrams": 150,
+          "calories": 78.0,
+          "protein": 0.3,
+          "fat": 0.3,
+          "carbs": 20.25
+        },
+        {
+          "foodId": 11,
+          "name": "无糖酸奶",
+          "category": "饮品",
+          "portionGrams": 100,
+          "calories": 72.0,
+          "protein": 3.5,
+          "fat": 3.3,
+          "carbs": 7.0
+        }
+      ],
+      "totalCalories": 150.0,
+      "totalProtein": 3.8,
+      "totalFat": 3.6,
+      "totalCarbs": 27.25,
+      "totalGrams": 250
+    },
+    {
+      "id": 2,
+      "eater": "demo-user",
+      "mealType": "LUNCH",
+      "mealTypeLabel": "午餐",
+      "eatenAt": "2026-09-28T12:30:00",
+      "note": "工作餐",
+      "items": [
+        {
+          "foodId": 1,
+          "name": "米饭",
+          "category": "主食",
+          "portionGrams": 200,
+          "calories": 232.0,
+          "protein": 5.2,
+          "fat": 0.6,
+          "carbs": 51.8
+        },
+        {
+          "foodId": 3,
+          "name": "鸡胸肉",
+          "category": "蛋白质",
+          "portionGrams": 150,
+          "calories": 199.5,
+          "protein": 36.9,
+          "fat": 3.75,
+          "carbs": 0.9
+        },
+        {
+          "foodId": 5,
+          "name": "西兰花",
+          "category": "蔬菜",
+          "portionGrams": 150,
+          "calories": 51.0,
+          "protein": 4.2,
+          "fat": 0.6,
+          "carbs": 9.9
+        }
+      ],
+      "totalCalories": 482.5,
+      "totalProtein": 46.3,
+      "totalFat": 4.95,
+      "totalCarbs": 62.6,
+      "totalGrams": 500
+    },
+    {
+      "id": 1,
+      "eater": "demo-user",
+      "mealType": "BREAKFAST",
+      "mealTypeLabel": "早餐",
+      "eatenAt": "2026-09-28T08:00:00",
+      "note": "标准早餐",
+      "items": [
+        {
+          "foodId": 2,
+          "name": "全麦面包",
+          "category": "主食",
+          "portionGrams": 80,
+          "calories": 196.8,
+          "protein": 7.2,
+          "fat": 2.72,
+          "carbs": 35.2
+        },
+        {
+          "foodId": 4,
+          "name": "水煮蛋",
+          "category": "蛋白质",
+          "portionGrams": 50,
+          "calories": 77.5,
+          "protein": 6.5,
+          "fat": 5.5,
+          "carbs": 0.55
+        },
+        {
+          "foodId": 7,
+          "name": "牛奶",
+          "category": "饮品",
+          "portionGrams": 250,
+          "calories": 135.0,
+          "protein": 7.5,
+          "fat": 8.0,
+          "carbs": 8.5
+        }
+      ],
+      "totalCalories": 409.3,
+      "totalProtein": 21.2,
+      "totalFat": 16.22,
+      "totalCarbs": 44.25,
+      "totalGrams": 380
+    }
+  ]
+}
+
+### Week 04 · 业务规则清单
+$ curl -X GET http://localhost:8080/api/meals/rules
+HTTP 200
+{
+  "rules": {
+    "R5": "同一天最多记录 12 餐",
+    "R4": "单次用餐最多包含 10 种食物",
+    "R3": "单次用餐热量不得超过 1500 kcal",
+    "R2": "用餐时间必须落在所选餐次的时间窗内，且同一时间不允许重复提交同餐次记录",
+    "R1": "食物必须存在于食物库，份量为正且不超过 5000 克"
+  },
+  "mealTypeWindows": {
+    "早餐": "05:00-10:59",
+    "午餐": "11:00-14:59",
+    "晚餐": "17:00-21:59",
+    "加餐": "00:00-23:59:59"
+  }
+}
+
+### Week 04 · 新增一条记录（成功 201）
+$ curl -X POST http://localhost:8080/api/meals
+# 请求体：{"eater": "transcript-user", "mealType": "LUNCH", "eatenAt": "2026-12-01T12:30:00", "note": "接口记录采集", "items": [{"foodId": 1, "portionGrams": 200}, {"foodId": 3, "portionGrams": 150}]}
+HTTP 201
+{
+  "id": 5,
+  "eater": "transcript-user",
+  "mealType": "LUNCH",
+  "mealTypeLabel": "午餐",
+  "eatenAt": "2026-12-01T12:30:00",
+  "note": "接口记录采集",
+  "items": [
+    {
+      "foodId": 1,
+      "name": "米饭",
+      "category": "主食",
+      "portionGrams": 200,
+      "calories": 232.0,
+      "protein": 5.2,
+      "fat": 0.6,
+      "carbs": 51.8
+    },
+    {
+      "foodId": 3,
+      "name": "鸡胸肉",
+      "category": "蛋白质",
+      "portionGrams": 150,
+      "calories": 199.5,
+      "protein": 36.9,
+      "fat": 3.75,
+      "carbs": 0.9
+    }
+  ],
+  "totalCalories": 431.5,
+  "totalProtein": 42.1,
+  "totalFat": 4.35,
+  "totalCarbs": 52.7,
+  "totalGrams": 350
+}
+
+### Week 04 · 违反 R3 单餐热量上限（422）
+$ curl -X POST http://localhost:8080/api/meals
+# 请求体：{"eater": "transcript-user", "mealType": "LUNCH", "eatenAt": "2026-12-02T12:30:00", "items": [{"foodId": 1, "portionGrams": 2000}]}
+HTTP 422
+{
+  "timestamp": "2026-10-12T13:14:29.3884699",
+  "status": 422,
+  "error": "Unprocessable Entity",
+  "code": "BUSINESS_RULE_VIOLATION",
+  "message": "本次用餐热量 2320.00 kcal 超过单餐上限 1500 kcal，请调整份量或拆分为多条记录",
+  "path": "/api/meals",
+  "details": [
+    "违反规则：R3 —— 单次用餐热量不得超过 1500 kcal"
+  ]
+}
+
+### Week 04 · 违反 R2 餐次时间窗（422）
+$ curl -X POST http://localhost:8080/api/meals
+# 请求体：{"eater": "transcript-user", "mealType": "BREAKFAST", "eatenAt": "2026-12-03T20:00:00", "items": [{"foodId": 1, "portionGrams": 100}]}
+HTTP 422
+{
+  "timestamp": "2026-10-12T13:14:29.4321034",
+  "status": 422,
+  "error": "Unprocessable Entity",
+  "code": "BUSINESS_RULE_VIOLATION",
+  "message": "用餐时间 20:00 不在「早餐」的合理时间窗 05:00-10:59 内，请改用与时间相符的餐次",
+  "path": "/api/meals",
+  "details": [
+    "违反规则：R2 —— 用餐时间必须落在所选餐次的时间窗内，且同一时间不允许重复提交同餐次记录"
+  ]
+}
+
+### Week 04 · 违反 R1 食物不存在（422）
+$ curl -X POST http://localhost:8080/api/meals
+# 请求体：{"eater": "transcript-user", "mealType": "LUNCH", "eatenAt": "2026-12-04T12:30:00", "items": [{"foodId": 99999, "portionGrams": 100}]}
+HTTP 422
+{
+  "timestamp": "2026-10-12T13:14:29.4794245",
+  "status": 422,
+  "error": "Unprocessable Entity",
+  "code": "BUSINESS_RULE_VIOLATION",
+  "message": "食物库中不存在以下 ID：[99999]，请先通过 GET /api/foods 确认可用食物",
+  "path": "/api/meals",
+  "details": [
+    "违反规则：R1 —— 食物必须存在于食物库，份量为正且不超过 5000 克"
+  ]
+}
+
+### Week 04 · 字段校验失败（400）
+$ curl -X POST http://localhost:8080/api/meals
+# 请求体：{"eater": "", "mealType": "LUNCH", "eatenAt": "2026-12-05T12:30:00", "items": []}
+HTTP 400
+{
+  "timestamp": "2026-10-12T13:14:29.5024789",
+  "status": 400,
+  "error": "Bad Request",
+  "code": "VALIDATION_FAILED",
+  "message": "请求参数校验失败",
+  "path": "/api/meals",
+  "details": [
+    "eater: 用餐人不能为空",
+    "items: 至少需要包含一种食物"
+  ]
+}
+
+### Week 04 · 资源不存在（404）
+$ curl -X GET http://localhost:8080/api/meals/999999
+HTTP 404
+{
+  "timestamp": "2026-10-12T13:14:29.5389056",
+  "status": 404,
+  "error": "Not Found",
+  "code": "RESOURCE_NOT_FOUND",
+  "message": "找不到 ID 为 999999 的饮食记录",
+  "path": "/api/meals/999999",
+  "details": []
+}
+
+### Week 04 · 路径变量类型错误（400）
+$ curl -X GET http://localhost:8080/api/meals/abc
+HTTP 400
+{
+  "timestamp": "2026-10-12T13:14:29.5950628",
+  "status": 400,
+  "error": "Bad Request",
+  "code": "INVALID_PARAMETER_TYPE",
+  "message": "请求参数类型不正确",
+  "path": "/api/meals/abc",
+  "details": [
+    "参数 id 的取值 abc 无法解析为 Long"
+  ]
+}
+
+==============================================================================
+共 15 个请求，失败 0 个。

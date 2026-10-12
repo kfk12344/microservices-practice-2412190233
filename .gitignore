@@ -1,0 +1,30 @@
+# ---- Maven 构建产物 ----
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# ---- IDE ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+
+# ---- 编译与日志 ----
+*.class
+*.log
+hs_err_pid*
+replay_pid*
+
+# ---- 本地数据与临时文件 ----
+*.db
+*.mv.db
+*.trace.db
+## H2 内存库不会落盘，但手动跑文件模式时可能生成上面几类文件
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+desktop.ini

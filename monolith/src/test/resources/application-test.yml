@@ -1,0 +1,36 @@
+# =============================================================================
+# 测试专用配置（profile: test）
+#
+# 目标：让 ./mvnw test 完全不依赖本机 MySQL，克隆下来就能重复跑通。
+#   * 数据源换成 H2 内存库，并用 MySQL 兼容模式，使 schema.sql 里的
+#     AUTO_INCREMENT / INSERT IGNORE / CHECK 等写法与生产环境行为一致；
+#   * DB_CLOSE_DELAY=-1 让同一个内存库在整个测试 JVM 生命周期内保持存活，
+#     多个测试类之间共享同一套表结构与数据，避免相互看不到对方的数据；
+#   * 表结构仍由 schema.sql 维护（ddl-auto=none），保证被测的表就是生产的表。
+# =============================================================================
+spring:
+  datasource:
+    url: jdbc:h2:mem:hdt_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    show-sql: false
+
+  # 测试同样加载生产用的 schema.sql 与 data.sql，
+  # 这样"应用实际跑起来看到的数据"和"测试断言的数据"是同一份，不会各说各话。
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:data.sql
+
+logging:
+  level:
+    com.zjgsu.hdt: INFO
+    org.hibernate.SQL: WARN

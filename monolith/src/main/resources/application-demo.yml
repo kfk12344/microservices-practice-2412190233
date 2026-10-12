@@ -1,0 +1,24 @@
+# =============================================================================
+# 无 MySQL 演示配置（profile: demo）
+#
+# 用途：本机没有装 MySQL、或只是想在评审时快速把应用跑起来看接口效果。
+# 生产/正式运行请使用默认配置（application.yml，连 MySQL）。
+#
+# 启动方式：
+#     ./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
+#
+# 数据来源与默认配置完全一致：schema.sql 建表 + data.sql 灌入示例数据，
+# 因此接口返回结果可直接与 MySQL 环境对照。
+# =============================================================================
+spring:
+  datasource:
+    url: jdbc:h2:mem:hdt_demo;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    show-sql: true
