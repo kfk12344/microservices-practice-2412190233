@@ -65,8 +65,9 @@
         <!--
           内存数据库 H2，两种用途：
             1) 测试：./mvnw test 用它跑，不依赖本机安装 MySQL；
-            2) demo profile：本机没装 MySQL 时也能把应用跑起来看接口效果
-               （见 application-demo.yml，启动方式写在 README）。
+            2) demo profile：本机没装 MySQL 时也能把应用跑起来看接口效果。
+          另外「验证脚本/verify_schema_h2.py」也用它的命令行工具验证
+          schema.sql 建出的表结构与约束（见 docs/database.md）。
           生产/正式运行使用默认配置连 MySQL，与 H2 无关。
         -->
         <dependency>
@@ -121,10 +122,29 @@
     </dependencies>
 
     <build>
+        <!--
+          固定产物名。默认产物名是 health-diet-tracker-0.0.1-SNAPSHOT.jar，
+          Dockerfile 里要靠通配符匹配，容易被 target/ 下的其他 jar（如 mockito agent）干扰。
+          固定成 app.jar 之后，Dockerfile 可以直接 COPY target/app.jar，不会拷错。
+          spring-boot-maven-plugin 的 repackage 会额外生成 app.jar.original（瘦 jar），保留即可。
+        -->
+        <finalName>app</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- 显式指定主类，repackage 才能正确写入 Main-Class -->
+                    <mainClass>com.zjgsu.hdt.HealthDietTrackerApplication</mainClass>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <!--
@@ -154,7 +174,16 @@
                                     <version>${mockito.version}</version>
                                 </artifactItem>
                             </artifactItems>
-                            <outputDirectory>${project.build.directory}</outputDirectory>
+                            <!--
+                              必须复制到 target/ 的【子目录】：
+                              maven-dependency-plugin 在 process-test-classes 阶段执行，
+                              而 package 阶段在其之后。若把它放在 target/ 根目录，
+                              target/ 里就会同时存在两个 jar（fat JAR 与 mockito-core.jar），
+                              导致 Dockerfile 里 `COPY target/*.jar` 匹配到多个文件、
+                              最终把不含 Main-Class 的 mockito-core.jar 当成应用 jar 拷进镜像，
+                              启动时报 `no main manifest attribute`。
+                            -->
+                            <outputDirectory>${project.build.directory}/mockito-agent</outputDirectory>
                             <stripVersion>true</stripVersion>
                         </configuration>
                     </execution>
@@ -165,7 +194,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-javaagent:${project.build.directory}/mockito-core.jar -Xshare:off</argLine>
+                    <argLine>-javaagent:${project.build.directory}/mockito-agent/mockito-core.jar -Xshare:off</argLine>
                 </configuration>
             </plugin>
         </plugins>

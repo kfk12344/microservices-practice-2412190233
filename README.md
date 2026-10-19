@@ -244,6 +244,92 @@ curl.exe http://localhost:8080/actuator/health
 # {"status":"UP", ...}
 ```
 
+### 6.5 容器化运行（Docker）
+
+用 Docker 把应用与 MySQL 一起跑起来，**不需要在本机安装 Java 或 MySQL**。
+
+镜像采用多阶段构建：构建阶段用 Maven 镜像编译打包，运行阶段只保留 JRE 与 JAR，
+因此最终镜像不含源码与构建工具。配置见 `monolith/Dockerfile` 与仓库根目录 `compose.yaml`。
+
+#### 1) 准备环境变量
+
+```powershell
+# 在仓库根目录执行
+Copy-Item .env.example .env
+```
+
+然后编辑 `.env`，把两个口令改掉（`.env` 已被 `.gitignore` 排除，不会提交）：
+
+| 变量 | 说明 |
+| :--- | :--- |
+| `MYSQL_ROOT_PASSWORD` | MySQL 超级用户口令，容器初始化用 |
+| `MYSQL_PASSWORD` | 应用连接数据库用的口令 |
+| `MYSQL_USER` / `MYSQL_DATABASE` | 可省略，默认 `hdt` / `health_diet` |
+
+> 若 `docker pull` 卡在拉取阶段，可参考
+> [docs/homework/week-05/index.md](docs/homework/week-05/index.md) 第五节配置镜像加速站。
+
+#### 2) 构建并启动
+
+```powershell
+# 在仓库根目录执行；首次或代码变更后要加 --build
+docker compose up -d --build
+```
+
+#### 3) 查看状态
+
+```powershell
+docker compose ps
+# 期望：app 与 mysql 均为 running，mysql 显示 healthy
+
+# 看应用日志
+docker compose logs -f app
+
+# 看数据库日志
+docker compose logs -f mysql
+```
+
+#### 4) 验证接口（健康检查 + 业务 API）
+
+```powershell
+# 健康检查
+curl.exe http://localhost:8080/actuator/health
+# {"status":"UP", ...}
+
+# 业务 API 示例 1：查询示例数据的当日热量汇总
+curl.exe "http://localhost:8080/api/meals/daily-summary?eater=demo-user&date=2026-09-28"
+
+# 业务 API 示例 2：新增一餐（米饭 200g + 鸡胸肉 150g），期望 201 且 totalCalories 为 431.5
+curl.exe -X POST http://localhost:8080/api/meals -H "Content-Type: application/json" -d '{\"eater\":\"docker-user\",\"mealType\":\"LUNCH\",\"eatenAt\":\"2026-10-20T12:30:00\",\"note\":\"容器内创建\",\"items\":[{\"foodId\":1,\"portionGrams\":200},{\"foodId\":3,\"portionGrams\":150}]}'
+
+# 业务 API 示例 3：查询刚创建的记录
+curl.exe "http://localhost:8080/api/meals?eater=docker-user"
+```
+
+> 也可查看镜像细节：
+> ```powershell
+> docker images health-diet-tracker
+> docker inspect health-diet-tracker:week05 --format '{{.Config.ExposedPorts}} {{.Config.User}}'
+> ```
+
+#### 5) 停止
+
+```powershell
+# 停止并删除容器，但保留数据卷 —— 数据不会丢，下次 up -d 仍在
+docker compose down
+
+# 连同数据卷一起清空（慎用，只在想彻底重来时用）
+docker compose down -v
+```
+
+数据存放在命名数据卷 `hdt-mysql-data` 中，因此**容器删除重建后数据仍然存在**：
+
+```powershell
+docker compose down          # 删容器，保留数据卷
+docker compose up -d         # 重新启动
+curl.exe "http://localhost:8080/api/meals?eater=docker-user"   # 记录仍在
+```
+
 ## 七、数据库设计
 
 完整的表结构与约束说明见 **[docs/database.md](docs/database.md)**，建表脚本见

@@ -40,11 +40,16 @@ CREATE TABLE IF NOT EXISTS meal_record (
     PRIMARY KEY (id),
     -- 餐次只能是四个枚举值，在数据库层兜底，防止绕过应用直接写脏数据
     CONSTRAINT ck_meal_record_type
-        CHECK (meal_type IN ('BREAKFAST', 'LUNCH', 'DINNER', 'SNACK'))
+        CHECK (meal_type IN ('BREAKFAST', 'LUNCH', 'DINNER', 'SNACK')),
+    -- 按"用餐人 + 时间"查询是日用汇总的主要访问路径，建复合索引。
+    --
+    -- 为什么把索引写在 CREATE TABLE 里，而不是单独写一条 CREATE INDEX：
+    --   MySQL 不支持 `CREATE INDEX IF NOT EXISTS`（那是 PostgreSQL/SQLite 的语法），
+    --   而本脚本需要在每次应用启动时重复执行，必须幂等。
+    --   写成表内联索引后：表不存在时连同索引一起建；表已存在时整条语句跳过，
+    --   天然幂等。H2（MODE=MySQL）同样接受这种写法，两套环境共用一份脚本。
+    INDEX idx_meal_record_eater_time (eater, eaten_at)
 );
-
--- 按"用餐人 + 时间"查询是日用汇总的主要访问路径，建复合索引
-CREATE INDEX IF NOT EXISTS idx_meal_record_eater_time ON meal_record (eater, eaten_at);
 
 -- -----------------------------------------------------------------------------
 -- 表 3：meal_item —— 记录与食物的关联表，份量存在这里

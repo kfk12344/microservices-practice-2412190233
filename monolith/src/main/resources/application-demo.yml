@@ -1,17 +1,26 @@
 # =============================================================================
-# 无 MySQL 演示配置（profile: demo）
+# 演示配置（profile: demo）
 #
-# 用途：本机没有装 MySQL、或只是想在评审时快速把应用跑起来看接口效果。
+# 用途：本机没有安装 MySQL 时，仍能把应用完整跑起来并核对接口与数据库层。
 # 生产/正式运行请使用默认配置（application.yml，连 MySQL）。
 #
-# 启动方式：
-#     ./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
+# 启动方式（PowerShell）：
+#     cd monolith
+#     $env:SPRING_PROFILES_ACTIVE = "demo"
+#     .\mvnw spring-boot:run
 #
-# 数据来源与默认配置完全一致：schema.sql 建表 + data.sql 灌入示例数据，
-# 因此接口返回结果可直接与 MySQL 环境对照。
+# 数据来源与默认配置完全一致：同样由 schema.sql 建表、data.sql 灌入示例数据，
+# 因此这里建出的三张表、约束与示例数据，与 MySQL 环境下完全相同。
+#
+# 想直接查看数据库里的表结构与数据，用：
+#     python 验证脚本/verify_schema_h2.py
+# 它会用 H2 的命令行工具建库、执行 schema.sql 与 data.sql，
+# 并打印表清单、meal_item 字段、全部约束与各表行数（输出见
+# 验证脚本/验证输出-数据库.txt）。
 # =============================================================================
 spring:
   datasource:
+    # DB_CLOSE_DELAY=-1 让内存库在整个 JVM 生命周期内存活，避免连接一断库就没了。
     url: jdbc:h2:mem:hdt_demo;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
     username: sa
@@ -22,3 +31,11 @@ spring:
       ddl-auto: none
     open-in-view: false
     show-sql: true
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.zjgsu.hdt: INFO
+    org.hibernate.SQL: DEBUG

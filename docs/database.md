@@ -255,3 +255,101 @@ spring:
 | 7 | `fk_meal_item_record → meal_record(id) ON DELETE CASCADE` | meal_item | 外键 | 删除记录时清理明细 |
 | 8 | `fk_meal_item_food → food(id)` | meal_item | 外键 | 被引用的食物不可删除 |
 | 9 | `ck_meal_item_portion_positive` | meal_item | CHECK | 份量为正 |
+
+---
+
+## 九、没有 MySQL 时如何验证表结构
+
+**默认运行环境就是 MySQL**（`application.yml`），本节方案只用于"本机暂时装不了 MySQL"
+的情况，用来生成同等效力的验证证据。
+
+### 9.1 为什么可以这样替代
+
+关键在于：**建表与灌数据用的仍然是仓库里那两份脚本**。
+
+```
+monolith/src/main/resources/schema.sql   ← 建表（唯一负责表结构，JPA 侧 ddl-auto=none）
+monolith/src/main/resources/data.sql     ← 示例数据（幂等）
+```
+
+换的只是执行引擎（H2 而不是 MySQL），**被测对象（DDL 与数据）完全没有变**。
+所以"表建出来了、约束生效了、数据落库了、脚本可重复执行"这几个结论是可信的。
+
+> 需要如实说明：H2 即使开了 `MODE=MySQL`，也不是 MySQL 的完整实现。
+> 本方案证明的是"DDL 与数据脚本按设计生效"，**不能**替代 MySQL 下的真实联调。
+> 有条件时仍应以 MySQL 为准——默认配置与 README 步骤都是按 MySQL 写的。
+
+### 9.2 一条命令完成验证
+
+```powershell
+cd <仓库根目录>
+python 验证脚本/verify_schema_h2.py
+```
+
+脚本依次做七件事，结果直接打印在终端（终端输出最适合截图）：
+
+| 步骤 | 内容 | 可支撑的截图 |
+| :-- | :--- | :--- |
+| 1 | 执行 `schema.sql` 建表、`data.sql` 灌数据 | — |
+| 2 | 列出三张表 | **`05-mysql-tables.png`** |
+| 3 | 查 `meal_item` 的字段名与类型 | **`05-mysql-tables.png`** |
+| 4 | 查全部约束（主键/外键/唯一/CHECK 共 10 条） | **`05-mysql-tables.png`** |
+| 5 | 查各表行数（food 12 / meal_record 4 / meal_item 11） | — |
+| 6 | **再执行一次**建表与灌数据，行数保持不变 | **`06-idempotent-scripts.png`** |
+| 7 | 抽样查询示例数据，证明真的落库 | 可选补充 |
+
+完整输出已存档在 **`验证脚本/验证输出-数据库.txt`**，可直接查看，也可以重跑生成。
+
+### 9.3 实测输出摘要
+
+```
+【2】表清单
+food | meal_item | meal_record                 (3 rows)
+
+【4】约束清单
+ck_food_nutrients_non_negative | CHECK       | food
+uk_food_name                   | UNIQUE      | food
+ck_meal_item_portion_positive  | CHECK       | meal_item
+fk_meal_item_food              | FOREIGN KEY | meal_item
+fk_meal_item_record            | FOREIGN KEY | meal_item
+uk_meal_item_record_food       | UNIQUE      | meal_item
+ck_meal_record_type            | CHECK       | meal_record
+...                                          (10 rows)
+
+【5】各表行数            【6】第二次执行后
+food         12          food         12
+meal_record   4          meal_record   4
+meal_item    11          meal_item    11     ← 行数不变，证明脚本幂等
+```
+
+### 9.4 另一种选择：用 Docker 起一个真 MySQL
+
+如果本机装了 Docker Desktop 且能访问镜像仓库，这是更贴近生产的方式：
+
+```powershell
+# 1) 启动 MySQL 8.4 容器（宿主机 PowerShell 里执行）
+docker run -d --name hdt-mysql -e MYSQL_ROOT_PASSWORD=root123 `
+  -e MYSQL_DATABASE=health_diet -p 3306:3306 mysql:8.4
+
+# 2) 建表 + 灌数据：把宿主机上的脚本通过管道喂给容器内的 mysql 客户端
+cd monolith
+Get-Content src\main\resources\schema.sql -Raw -Encoding UTF8 |
+  docker exec -i hdt-mysql mysql -uroot -proot123 health_diet
+Get-Content src\main\resources\data.sql -Raw -Encoding UTF8 |
+  docker exec -i hdt-mysql mysql -uroot -proot123 health_diet
+
+# 3) 查看表与约束（这段输出正是 05 号截图需要的）
+docker exec hdt-mysql mysql -uroot -proot123 health_diet -e "SHOW TABLES; DESC meal_item;"
+```
+
+之后启动应用时注入口令即可连上：
+
+```powershell
+$env:MYSQL_PASSWORD = 'root123'
+.\mvnw spring-boot:run
+```
+
+> 两个容易踩的点：
+> 1. `docker` 命令要在**宿主机** PowerShell 里执行，不要进到容器内部再执行；
+> 2. 容器内的 `mysql` 客户端必须与 `docker exec` 配合使用，
+>    在宿主机直接敲 `mysql` 会报"无法将 mysql 项识别为 cmdlet"（本机未安装 MySQL 客户端时）。

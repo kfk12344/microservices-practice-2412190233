@@ -1,0 +1,95 @@
+# =============================================================================
+# 个人健康饮食记录管理系统 —— 容器编排
+#
+# 用法（在仓库根目录执行）：
+#     1. 复制环境变量模板并填入自己的口令
+#          cp .env.example .env          # Windows PowerShell: Copy-Item .env.example .env
+#     2. 构建并启动（首次或代码变更后都要加 --build）
+#          docker compose up -d --build
+#     3. 查看状态与日志
+#          docker compose ps
+#          docker compose logs -f app
+#     4. 停止（保留数据卷，数据不会丢）
+#          docker compose down
+#     5. 连数据一起清空（慎用，仅用于彻底重来）
+#          docker compose down -v
+#
+# 说明：本文件不使用 compose 的 version 字段（该字段在新版已废弃并会告警）。
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # 数据库：MySQL 8.4.11
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4.11
+    container_name: hdt-mysql
+    restart: unless-stopped
+    environment:
+      # 口令全部来自 .env，绝不写死在本文件里
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-health_diet}
+      MYSQL_USER: ${MYSQL_USER:-hdt}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在 .env 中设置 MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      # 命名数据卷：容器被删除重建后，数据库文件仍然保留
+      - mysql-data:/var/lib/mysql
+    # 只有同一个网络里的服务才能用服务名 mysql 访问它；
+    # 不映射 3306 到宿主机，避免占用本机端口、也避免把数据库暴露到局域网
+    networks:
+      - hdt-net
+    healthcheck:
+      # 应用要等这条健康检查通过才启动，避免"数据库还没起来应用就连不上"的启动竞态
+      # $$ 是 compose 的转义写法，表示容器内的 $（由容器 shell 展开）
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # 应用：由 ./monolith 构建
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: ./monolith
+      dockerfile: Dockerfile
+    image: health-diet-tracker:week05
+    container_name: hdt-app
+    restart: unless-stopped
+    ports:
+      # 宿主机 8080 → 容器 8080，验证接口时访问 http://localhost:8080
+      - "8080:8080"
+    environment:
+      # 连接地址用「服务名 mysql」而不是 localhost：
+      # 容器之间通过 compose 创建的网络互相解析，localhost 指的是应用容器自己
+      MYSQL_URL: >-
+        jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-health_diet}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      MYSQL_USERNAME: ${MYSQL_USER:-hdt}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        # 等 MySQL 健康检查通过再启动应用，而不是只等容器"起来了"
+        condition: service_healthy
+    networks:
+      - hdt-net
+    healthcheck:
+      # 应用自带 Actuator，用它判断应用是否真的可服务
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+volumes:
+  # 命名数据卷：执行 docker compose down 时不会被删除，
+  # 只有显式加 -v 才会删除，这就是"数据持久化验证"能成立的前提
+  mysql-data:
+    name: hdt-mysql-data
+
+networks:
+  hdt-net:
+    name: hdt-net
+    driver: bridge

@@ -24,6 +24,12 @@ replay_pid*
 *.trace.db
 ## H2 内存库不会落盘，但手动跑文件模式时可能生成上面几类文件
 
+# ---- Docker 相关（第 05 周）----
+## .env 里是真实的数据库口令，绝不能提交；提交的是 .env.example 模板
+.env
+.env.*
+!.env.example
+
 # ---- 操作系统 ----
 .DS_Store
 Thumbs.db
