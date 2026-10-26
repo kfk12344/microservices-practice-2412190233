@@ -1,0 +1,51 @@
+## =============================================================================
+## user-service 配置
+##
+## 服务边界：本服务只连 health_diet_user 一个库，账号 svc_user 也只被授权访问它。
+## 其他服务的数据（食物、饮食记录）在本服务里完全不可见，只能通过 HTTP 访问。
+## =============================================================================
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: user-service
+
+  datasource:
+    # 数据库地址、账号、口令全部可被环境变量覆盖：
+    #   本地调试用默认值；compose 里覆盖成 mysql:3306 / svc_user / .env 中的口令
+    url: ${DB_URL:jdbc:mysql://localhost:3306/health_diet_user?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${DB_USERNAME:svc_user}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # 表结构由 schema.sql 管理，不让 Hibernate 自动建表，避免两套 DDL 打架
+      ddl-auto: none
+    properties:
+      hibernate:
+        format_sql: true
+
+  sql:
+    init:
+      # 每次启动都执行，脚本用 CREATE TABLE IF NOT EXISTS / INSERT IGNORE 保证幂等
+      mode: always
+      encoding: UTF-8
+
+  jackson:
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.zjgsu.hdt.user: INFO

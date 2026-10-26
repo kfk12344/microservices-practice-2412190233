@@ -1,0 +1,47 @@
+## =============================================================================
+## food-service 配置
+##
+## 服务边界：只连 health_diet_food 一个库，账号 svc_food 只被授权访问它。
+## 用户与饮食记录的数据在本服务里完全不可见。
+## =============================================================================
+server:
+  port: ${SERVER_PORT:8082}
+
+spring:
+  application:
+    name: food-service
+
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/health_diet_food?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${DB_USERNAME:svc_food}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        format_sql: true
+
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+
+  jackson:
+    default-property-inclusion: non_null
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.zjgsu.hdt.food: INFO

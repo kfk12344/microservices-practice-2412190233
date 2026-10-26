@@ -1,0 +1,65 @@
+## =============================================================================
+## meal-service 配置
+##
+## 服务边界：只连 health_diet_meal 一个库（账号 svc_meal）。
+## 用户数据与食物数据在本服务里完全不可见，必须通过 HTTP 调用其他服务获取。
+## =============================================================================
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  application:
+    name: meal-service
+
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/health_diet_meal?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${DB_USERNAME:svc_meal}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        format_sql: true
+
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+
+  jackson:
+    default-property-inclusion: non_null
+
+# -----------------------------------------------------------------------------
+# 跨服务调用配置
+#
+# 地址一律走配置 + 环境变量覆盖：
+#   本地单独调试时用默认的 localhost；
+#   compose 里通过 USER_SERVICE_URL / FOOD_SERVICE_URL 覆盖成服务名。
+# 超时必须有：RestTemplate 默认无限等待，依赖卡住会拖垮本服务。
+# -----------------------------------------------------------------------------
+services:
+  user-service:
+    url: ${USER_SERVICE_URL:http://localhost:8081}
+  food-service:
+    url: ${FOOD_SERVICE_URL:http://localhost:8082}
+  connect-timeout-ms: ${SERVICE_CONNECT_TIMEOUT_MS:2000}
+  read-timeout-ms: ${SERVICE_READ_TIMEOUT_MS:3000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.zjgsu.hdt.meal: INFO
+    # 想看跨服务调用的实际请求与响应时，把下面这行放开
+    # org.springframework.web.client.RestTemplate: DEBUG

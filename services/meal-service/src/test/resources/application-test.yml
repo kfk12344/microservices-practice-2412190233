@@ -1,0 +1,30 @@
+## =============================================================================
+## 测试专用配置：H2 内存库
+##
+## 跨服务地址指向一个不存在的端口：单元测试里我们对 RestTemplate 绑定了
+## MockRestServiceServer，真实网络不会被用到；默认值只是让配置能解析。
+## =============================================================================
+spring:
+  datasource:
+    url: jdbc:h2:mem:mealsvc;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+
+services:
+  user-service:
+    url: http://localhost:18081
+  food-service:
+    url: http://localhost:18082
+  connect-timeout-ms: 500
+  read-timeout-ms: 500

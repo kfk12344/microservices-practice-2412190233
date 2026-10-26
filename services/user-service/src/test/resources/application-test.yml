@@ -1,0 +1,23 @@
+## =============================================================================
+## 测试专用配置：用 H2 内存库，mvn test 不依赖本机 MySQL
+##
+## MODE=MySQL 让 H2 接受 AUTO_INCREMENT、INSERT IGNORE 等 MySQL 写法，
+## 从而与生产环境的 schema.sql / data.sql 共用同一份脚本。
+## 要注意 MODE=MySQL 只模拟部分行为，最终仍须在真实 MySQL 上验证。
+## =============================================================================
+spring:
+  datasource:
+    url: jdbc:h2:mem:usersvc;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8

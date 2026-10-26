@@ -1,47 +1,62 @@
 # =============================================================================
 # 个人健康饮食记录管理系统 —— 容器编排
 #
+# 第 06 周：三个微服务 + 一个 MySQL 实例（三个独立库、三个独立账号）一键启动。
+#
 # 用法（在仓库根目录执行）：
-#     1. 复制环境变量模板并填入自己的口令
-#          cp .env.example .env          # Windows PowerShell: Copy-Item .env.example .env
+#     1. 准备环境变量
+#          Copy-Item .env.example .env      (Windows PowerShell)
+#          cp .env.example .env             (Linux / macOS / Git Bash)
+#        然后编辑 .env，把所有 change-me-... 改成自己的口令
 #     2. 构建并启动（首次或代码变更后都要加 --build）
 #          docker compose up -d --build
 #     3. 查看状态与日志
 #          docker compose ps
-#          docker compose logs -f app
+#          docker compose logs -f meal-service
 #     4. 停止（保留数据卷，数据不会丢）
 #          docker compose down
-#     5. 连数据一起清空（慎用，仅用于彻底重来）
+#     5. 连数据一起清空（仅用于彻底重来；注意 MySQL 初始化脚本只在空数据目录时执行）
 #          docker compose down -v
 #
-# 说明：本文件不使用 compose 的 version 字段（该字段在新版已废弃并会告警）。
+# 单体版本（第 04/05 周）仍在仓库里，放在 monolith profile 下，默认不启动：
+#          docker compose --profile monolith up -d --build
+#
+# 本文件不使用已废弃的 version 字段。
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
-  # 数据库：MySQL 8.4.11
+  # 数据库：一个 MySQL 8.4.11 实例，四个库
+  #   health_diet       ← 单体版本（monolith profile）
+  #   health_diet_user  ← user-service
+  #   health_diet_food  ← food-service
+  #   health_diet_meal  ← meal-service
+  # 三个微服务库由 db/init 下的脚本初始化，账号权限互相隔离。
   # ---------------------------------------------------------------------------
   mysql:
     image: mysql:8.4.11
     container_name: hdt-mysql
     restart: unless-stopped
     environment:
-      # 口令全部来自 .env，绝不写死在本文件里
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      # 供单体版本使用的库与账号（monolith profile）
       MYSQL_DATABASE: ${MYSQL_DATABASE:-health_diet}
       MYSQL_USER: ${MYSQL_USER:-hdt}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在 .env 中设置 MYSQL_PASSWORD}
+      # 供三个微服务账号使用，由 db/init 的脚本读取
+      USER_DB_PASSWORD: ${USER_DB_PASSWORD:?请在 .env 中设置 USER_DB_PASSWORD}
+      FOOD_DB_PASSWORD: ${FOOD_DB_PASSWORD:?请在 .env 中设置 FOOD_DB_PASSWORD}
+      MEAL_DB_PASSWORD: ${MEAL_DB_PASSWORD:?请在 .env 中设置 MEAL_DB_PASSWORD}
       TZ: Asia/Shanghai
     volumes:
-      # 命名数据卷：容器被删除重建后，数据库文件仍然保留
+      # 命名数据卷：容器删除重建后数据仍在，只有 down -v 才删
       - mysql-data:/var/lib/mysql
-    # 只有同一个网络里的服务才能用服务名 mysql 访问它；
-    # 不映射 3306 到宿主机，避免占用本机端口、也避免把数据库暴露到局域网
+      # 初始化脚本：官方镜像只在【数据目录为空】时执行这里的文件
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    # 不映射 3306 到宿主机：数据库只在容器网络内可达，应用通过服务名访问
     networks:
       - hdt-net
     healthcheck:
-      # 应用要等这条健康检查通过才启动，避免"数据库还没起来应用就连不上"的启动竞态
-      # $$ 是 compose 的转义写法，表示容器内的 $（由容器 shell 展开）
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 5s
       timeout: 5s
@@ -49,9 +64,114 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
-  # 应用：由 ./monolith 构建
+  # 用户服务 :8081 —— 拥有 health_diet_user 库的 app_user 表
+  # ---------------------------------------------------------------------------
+  user-service:
+    build:
+      context: ./services/user-service
+    image: user-service:week06
+    container_name: hdt-user-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      SERVER_PORT: 8081
+      DB_URL: >-
+        jdbc:mysql://mysql:3306/health_diet_user?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      DB_USERNAME: svc_user
+      DB_PASSWORD: ${USER_DB_PASSWORD}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - hdt-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # 食物服务 :8082 —— 拥有 health_diet_food 库的 food 表
+  # ---------------------------------------------------------------------------
+  food-service:
+    build:
+      context: ./services/food-service
+    image: food-service:week06
+    container_name: hdt-food-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      SERVER_PORT: 8082
+      DB_URL: >-
+        jdbc:mysql://mysql:3306/health_diet_food?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      DB_USERNAME: svc_food
+      DB_PASSWORD: ${FOOD_DB_PASSWORD}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - hdt-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # 饮食记录服务 :8083 —— 拥有 health_diet_meal 库，并跨服务调用上面两个
+  # ---------------------------------------------------------------------------
+  meal-service:
+    build:
+      context: ./services/meal-service
+    image: meal-service:week06
+    container_name: hdt-meal-service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      SERVER_PORT: 8083
+      DB_URL: >-
+        jdbc:mysql://mysql:3306/health_diet_meal?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      DB_USERNAME: svc_meal
+      DB_PASSWORD: ${MEAL_DB_PASSWORD}
+      # 跨服务地址用【服务名】，不用 localhost：容器里的 localhost 是它自己
+      USER_SERVICE_URL: http://user-service:8081
+      FOOD_SERVICE_URL: http://food-service:8082
+      # 超时：RestTemplate 默认无限等待，必须显式设置
+      SERVICE_CONNECT_TIMEOUT_MS: 2000
+      SERVICE_READ_TIMEOUT_MS: 3000
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      # 等依赖的两个服务健康后再启动，减少启动瞬间的必然失败
+      user-service:
+        condition: service_healthy
+      food-service:
+        condition: service_healthy
+    networks:
+      - hdt-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # 单体版本（第 04/05 周）—— 放在 profile 下，默认不启动
+  #
+  # 保留它有两个意义：一是第 05 周的成果仍然可以一键跑起来；
+  # 二是可以在同一台机器上对照"单体 vs 微服务"两种部署形态。
   # ---------------------------------------------------------------------------
   app:
+    profiles: ["monolith"]
     build:
       context: ./monolith
       dockerfile: Dockerfile
@@ -59,11 +179,8 @@ services:
     container_name: hdt-app
     restart: unless-stopped
     ports:
-      # 宿主机 8080 → 容器 8080，验证接口时访问 http://localhost:8080
       - "8080:8080"
     environment:
-      # 连接地址用「服务名 mysql」而不是 localhost：
-      # 容器之间通过 compose 创建的网络互相解析，localhost 指的是应用容器自己
       MYSQL_URL: >-
         jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-health_diet}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       MYSQL_USERNAME: ${MYSQL_USER:-hdt}
@@ -71,12 +188,10 @@ services:
       TZ: Asia/Shanghai
     depends_on:
       mysql:
-        # 等 MySQL 健康检查通过再启动应用，而不是只等容器"起来了"
         condition: service_healthy
     networks:
       - hdt-net
     healthcheck:
-      # 应用自带 Actuator，用它判断应用是否真的可服务
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
       interval: 10s
       timeout: 5s
@@ -84,8 +199,7 @@ services:
       start_period: 40s
 
 volumes:
-  # 命名数据卷：执行 docker compose down 时不会被删除，
-  # 只有显式加 -v 才会删除，这就是"数据持久化验证"能成立的前提
+  # 命名数据卷：docker compose down 不会删，只有 down -v 才会删
   mysql-data:
     name: hdt-mysql-data
 

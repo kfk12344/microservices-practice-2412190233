@@ -330,6 +330,109 @@ docker compose up -d         # 重新启动
 curl.exe "http://localhost:8080/api/meals?eater=docker-user"   # 记录仍在
 ```
 
+### 6.6 微服务版本（Week 06）
+
+第 06 周把单体拆成了 **3 个独立 Spring Boot 服务**，单体仍然保留在 `monolith/` 里，未做改动。
+拆分理由、服务边界与数据归属见 **[docs/microservices-design.md](docs/microservices-design.md)**。
+
+| 服务 | 端口 | 独立数据库 | 拥有的表 | 依赖谁 |
+| :--- | ---: | :--- | :--- | :--- |
+| user-service | 8081 | `health_diet_user` | `app_user` | 无 |
+| food-service | 8082 | `health_diet_food` | `food` | 无 |
+| meal-service | 8083 | `health_diet_meal` | `meal_record`、`meal_item` | user-service、food-service |
+
+三个库建在同一个 MySQL 实例里，但用**三个独立账号**隔离：
+`svc_meal` 没有另外两个库的任何权限，想拿数据只能走 HTTP。
+
+#### 一键启动
+
+```powershell
+# 仓库根目录
+Copy-Item .env.example .env      # 把所有 change-me-... 改成自己的口令
+docker compose up -d --build
+docker compose ps                # 期望：mysql + 三个服务全部 healthy
+```
+
+> **从第 05 周切换过来时注意**：MySQL 的初始化脚本只在数据目录为空时执行，
+> 所以第一次需要先 `docker compose down -v` 清掉旧卷，再 `up -d --build`，
+> 否则三个微服务的库与账号不会被创建。
+
+单体版本仍在，需要时单独启动（默认不启动）：
+
+```powershell
+docker compose --profile monolith up -d --build
+```
+
+#### 每个服务的测试命令
+
+各服务是独立的 Maven 工程，**分别**在其目录下运行：
+
+```powershell
+# user-service（5 个测试）
+cd services/user-service
+mvn test
+
+# food-service（5 个测试）
+cd services/food-service
+mvn test
+
+# meal-service（7 个测试，含跨服务流程与失败路径）
+cd services/meal-service
+mvn test
+
+# 单体（75 个测试）
+cd monolith
+mvn test
+```
+
+也可以一次跑完三个服务：
+
+```powershell
+mvn -f services/user-service/pom.xml test
+mvn -f services/food-service/pom.xml test
+mvn -f services/meal-service/pom.xml test
+```
+
+> 测试用 H2 内存库，**不需要本机安装 MySQL**，也不需要先启动 compose。
+
+#### 冒烟测试（从仓库根目录运行）
+
+```bash
+bash scripts/smoke-test.sh
+```
+
+覆盖：三个服务的健康接口、一次完整的跨服务业务流程（记录一餐）、
+用户/食物不存在（400）、单餐热量超限（422）、依赖服务不可用（503），
+并且每个失败用例都会断言 **meal-service 的本地记录数没有增加**。
+
+#### 手工验证跨服务流程
+
+```powershell
+# 1) 三个服务的健康检查
+curl.exe http://localhost:8081/actuator/health
+curl.exe http://localhost:8082/actuator/health
+curl.exe http://localhost:8083/actuator/health
+
+# 2) 业务数据（用户与食物分别在两个服务里）
+curl.exe http://localhost:8081/api/users/1
+curl.exe http://localhost:8082/api/foods/1
+
+# 3) 跨服务流程：记录一餐（meal-service 会去调上面两个服务校验）
+curl.exe -X POST http://localhost:8083/api/meals -H "Content-Type: application/json" -d '{\"userId\":1,\"mealType\":\"LUNCH\",\"eatenAt\":\"2026-10-25T12:30:00\",\"items\":[{\"foodId\":1,\"portionGrams\":200},{\"foodId\":3,\"portionGrams\":150}]}'
+# 期望 201，totalCalories = 431.50
+
+# 4) 失败场景：用户不存在 → 400 USER_NOT_FOUND，且不写本地库
+curl.exe -X POST http://localhost:8083/api/meals -H "Content-Type: application/json" -d '{\"userId\":9999,\"mealType\":\"LUNCH\",\"eatenAt\":\"2026-10-25T13:00:00\",\"items\":[{\"foodId\":1,\"portionGrams\":200}]}'
+
+# 5) 失败场景：食物不存在 → 400 FOOD_NOT_FOUND
+curl.exe -X POST http://localhost:8083/api/meals -H "Content-Type: application/json" -d '{\"userId\":1,\"mealType\":\"LUNCH\",\"eatenAt\":\"2026-10-25T14:00:00\",\"items\":[{\"foodId\":9999,\"portionGrams\":100}]}'
+
+# 6) 失败场景：依赖服务不可用 → 503 DEPENDENCY_UNAVAILABLE
+docker compose stop user-service
+curl.exe -X POST http://localhost:8083/api/meals -H "Content-Type: application/json" -d '{\"userId\":1,\"mealType\":\"LUNCH\",\"eatenAt\":\"2026-10-25T15:00:00\",\"items\":[{\"foodId\":1,\"portionGrams\":100}]}'
+docker compose start user-service
+```
+
 ## 七、数据库设计
 
 完整的表结构与约束说明见 **[docs/database.md](docs/database.md)**，建表脚本见

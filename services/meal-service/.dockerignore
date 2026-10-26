@@ -1,0 +1,11 @@
+# 构建上下文排除规则（作用于 services/meal-service/）
+target/
+.git/
+.idea/
+.vscode/
+*.iml
+*.log
+*.db
+*.mv.db
+.DS_Store
+Thumbs.db
