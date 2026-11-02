@@ -11,6 +11,22 @@ spring:
   application:
     name: meal-service
 
+  # ---------------------------------------------------------------------------
+  # 第 07 周：注册到 Nacos（服务名 = meal-service）
+  # 同时本服务要用 DiscoveryClient 发现 user-service 与 food-service 的实例。
+  # ---------------------------------------------------------------------------
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        # 参与调用的服务必须与这里的分组一致，否则查不到对方的实例
+        group: ${NACOS_GROUP:PERSONAL_GROUP}
+        register-enabled: ${NACOS_REGISTER_ENABLED:true}
+        enabled: ${NACOS_DISCOVERY_ENABLED:true}
+
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/health_diet_meal?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
     username: ${DB_USERNAME:svc_meal}
@@ -36,16 +52,14 @@ spring:
 # -----------------------------------------------------------------------------
 # 跨服务调用配置
 #
-# 地址一律走配置 + 环境变量覆盖：
-#   本地单独调试时用默认的 localhost；
-#   compose 里通过 USER_SERVICE_URL / FOOD_SERVICE_URL 覆盖成服务名。
-# 超时必须有：RestTemplate 默认无限等待，依赖卡住会拖垮本服务。
+# 第 07 周的重要变化：这里【不再有】user-service / food-service 的固定 URL。
+# 第 06 周那两个地址（USER_SERVICE_URL / FOOD_SERVICE_URL）已经删除 ——
+# 现在通过 DiscoveryClient 向 Nacos 查询服务名，拿到实时的实例 IP 与端口。
+#
+# 保留下来的只有超时：无论地址从哪来，RestTemplate 默认都是无限等待，
+# 依赖卡住会占满请求线程，必须显式设置。
 # -----------------------------------------------------------------------------
 services:
-  user-service:
-    url: ${USER_SERVICE_URL:http://localhost:8081}
-  food-service:
-    url: ${FOOD_SERVICE_URL:http://localhost:8082}
   connect-timeout-ms: ${SERVICE_CONNECT_TIMEOUT_MS:2000}
   read-timeout-ms: ${SERVICE_READ_TIMEOUT_MS:3000}
 

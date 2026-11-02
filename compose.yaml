@@ -64,12 +64,59 @@ services:
       start_period: 30s
 
   # ---------------------------------------------------------------------------
+  # Nacos 3.2.4 —— 服务注册与发现（第 07 周新增）
+  #
+  # 端口布局（Nacos 3.x 起控制台与主端口分离）：
+  #   18080:8080  控制台页面（宿主机用 18080，避开业务服务/单体占用的 8080）
+  #   8848:8848   HTTP API：Admin API 与部分 OpenAPI（如登录拿 accessToken）
+  #   9848:9848   客户端 gRPC：注册、订阅、心跳都走这里
+  #
+  # 9849（服务端之间同步）与 7848（Jraft）只在集群模式需要，单机不暴露。
+  #
+  # 首次启动后必须【手工初始化管理员密码】：打开 http://localhost:18080/ ，
+  # 用 nacos 作为用户名设置密码，并把该密码填进 .env 的 NACOS_PASSWORD，
+  # 否则业务服务注册时会因鉴权失败而报 403。
+  # ---------------------------------------------------------------------------
+  nacos:
+    image: nacos/nacos-server:v3.2.4
+    container_name: hdt-nacos
+    restart: unless-stopped
+    environment:
+      # 单机模式：内置 Derby 数据库，足够本地开发与演示
+      MODE: standalone
+      # JWT 签名密钥：长度需大于 32 字符，且必须再经过 Base64 编码
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:?请在 .env 中设置 NACOS_AUTH_TOKEN（base64）}
+      # 服务端之间 Inner API 的身份标识，鉴权开启时必填
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:?请在 .env 中设置 NACOS_AUTH_IDENTITY_KEY}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:?请在 .env 中设置 NACOS_AUTH_IDENTITY_VALUE}
+      # 显式开启鉴权；关闭鉴权会让"注册需要账号密码"这条配置失去意义
+      NACOS_AUTH_ENABLE: "true"
+      TZ: Asia/Shanghai
+      JVM_XMS: 256m
+      JVM_XMX: 512m
+    ports:
+      # 控制台用 18080，避免与宿主机 8080 冲突
+      - "18080:8080"
+      - "8848:8848"
+      - "9848:9848"
+    volumes:
+      # 命名数据卷：Nacos 的注册数据与配置数据落在 /home/nacos/data，
+      # 容器删除重建后不会丢，验证"持久化"时要靠它
+      - nacos-data:/home/nacos/data
+      - nacos-logs:/home/nacos/logs
+    networks:
+      - hdt-net
+    # 这里刻意不写 healthcheck：Nacos 3.x 的健康探测路径与 2.x 不同，
+    # 写错会让容器永远显示 unhealthy。业务服务改用 service_started 依赖它，
+    # 是否真正就绪由控制台页面与注册结果确认（见 docs/homework/week-07/index.md）。
+
+  # ---------------------------------------------------------------------------
   # 用户服务 :8081 —— 拥有 health_diet_user 库的 app_user 表
   # ---------------------------------------------------------------------------
   user-service:
     build:
       context: ./services/user-service
-    image: user-service:week06
+    image: user-service:week07
     container_name: hdt-user-service
     restart: unless-stopped
     ports:
@@ -80,10 +127,21 @@ services:
         jdbc:mysql://mysql:3306/health_diet_user?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       DB_USERNAME: svc_user
       DB_PASSWORD: ${USER_DB_PASSWORD}
+      # ---- 第 07 周：注册到 Nacos ----
+      # 用服务名 nacos 而不是 localhost：容器里的 localhost 是它自己
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?请在 .env 中设置 NACOS_PASSWORD（与控制台初始化的一致）}
+      # 参与调用的服务必须同分组，否则互相查不到
+      NACOS_GROUP: ${NACOS_GROUP:-PERSONAL_GROUP}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
       TZ: Asia/Shanghai
     depends_on:
       mysql:
         condition: service_healthy
+      # Nacos 先起来再启动业务服务，避免启动瞬间注册失败刷一堆错误日志
+      nacos:
+        condition: service_started
     networks:
       - hdt-net
     healthcheck:
@@ -99,7 +157,7 @@ services:
   food-service:
     build:
       context: ./services/food-service
-    image: food-service:week06
+    image: food-service:week07
     container_name: hdt-food-service
     restart: unless-stopped
     ports:
@@ -110,10 +168,18 @@ services:
         jdbc:mysql://mysql:3306/health_diet_food?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       DB_USERNAME: svc_food
       DB_PASSWORD: ${FOOD_DB_PASSWORD}
+      # ---- 第 07 周：注册到 Nacos ----
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?请在 .env 中设置 NACOS_PASSWORD（与控制台初始化的一致）}
+      NACOS_GROUP: ${NACOS_GROUP:-PERSONAL_GROUP}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
       TZ: Asia/Shanghai
     depends_on:
       mysql:
         condition: service_healthy
+      nacos:
+        condition: service_started
     networks:
       - hdt-net
     healthcheck:
@@ -129,7 +195,7 @@ services:
   meal-service:
     build:
       context: ./services/meal-service
-    image: meal-service:week06
+    image: meal-service:week07
     container_name: hdt-meal-service
     restart: unless-stopped
     ports:
@@ -140,16 +206,25 @@ services:
         jdbc:mysql://mysql:3306/health_diet_meal?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       DB_USERNAME: svc_meal
       DB_PASSWORD: ${MEAL_DB_PASSWORD}
-      # 跨服务地址用【服务名】，不用 localhost：容器里的 localhost 是它自己
-      USER_SERVICE_URL: http://user-service:8081
-      FOOD_SERVICE_URL: http://food-service:8082
-      # 超时：RestTemplate 默认无限等待，必须显式设置
+      # ---- 第 07 周：注册到 Nacos，并通过服务发现找另外两个服务 ----
+      #
+      # 注意：这里【已经删除】第 06 周的 USER_SERVICE_URL / FOOD_SERVICE_URL。
+      # 跨服务地址不再由配置写死，而是运行时用 DiscoveryClient 查 Nacos 得到，
+      # 这样服务扩容、换 IP、重启后都不需要改配置。
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?请在 .env 中设置 NACOS_PASSWORD（与控制台初始化的一致）}
+      NACOS_GROUP: ${NACOS_GROUP:-PERSONAL_GROUP}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
+      # 超时保留：无论地址从哪来，RestTemplate 默认都是无限等待
       SERVICE_CONNECT_TIMEOUT_MS: 2000
       SERVICE_READ_TIMEOUT_MS: 3000
       TZ: Asia/Shanghai
     depends_on:
       mysql:
         condition: service_healthy
+      nacos:
+        condition: service_started
       # 等依赖的两个服务健康后再启动，减少启动瞬间的必然失败
       user-service:
         condition: service_healthy
@@ -202,6 +277,13 @@ volumes:
   # 命名数据卷：docker compose down 不会删，只有 down -v 才会删
   mysql-data:
     name: hdt-mysql-data
+
+  # Nacos 的数据卷：注册的实例、命名空间、配置数据都在 /home/nacos/data
+  # 保留它才能验证"容器重建后服务列表与配置仍在"
+  nacos-data:
+    name: hdt-nacos-data
+  nacos-logs:
+    name: hdt-nacos-logs
 
 networks:
   hdt-net:

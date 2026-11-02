@@ -1,10 +1,21 @@
 ## =============================================================================
-## 测试专用配置：H2 内存库
+## meal-service 测试专用配置：H2 内存库 + 关闭 Nacos
 ##
-## 跨服务地址指向一个不存在的端口：单元测试里我们对 RestTemplate 绑定了
-## MockRestServiceServer，真实网络不会被用到；默认值只是让配置能解析。
+## 测试不连接任何外部中间件：
+##   - 数据库用 H2 内存库
+##   - Nacos 注册与发现关闭，改由 TestDiscoveryConfig 提供一个假的 DiscoveryClient
+##   - 跨服务的 HTTP 请求由 MockRestServiceServer 拦截，不会真的发出去
+##
+## 这样 `mvn test` 在没有 Docker、没有 Nacos、没有 MySQL 的机器上也能跑。
 ## =============================================================================
 spring:
+  # 测试里关闭 Nacos 自动注册/发现；服务发现的"实例列表"由测试桩提供
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+        register-enabled: false
+
   datasource:
     url: jdbc:h2:mem:mealsvc;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
     username: sa
@@ -21,10 +32,14 @@ spring:
       mode: always
       encoding: UTF-8
 
+# 只保留超时配置；固定服务地址已删除，实例地址由 DiscoveryClient 提供
 services:
-  user-service:
-    url: http://localhost:18081
-  food-service:
-    url: http://localhost:18082
   connect-timeout-ms: 500
   read-timeout-ms: 500
+
+# 关闭生产环境的寻址实现（DiscoveryServiceInstanceResolver），
+# 改由 TestDiscoveryConfig 提供一个返回固定实例地址的桩。
+# 这样单元测试既不连 Nacos，也不会遇到 Spring Cloud 多个 primary DiscoveryClient 的歧义。
+meal:
+  discovery:
+    enabled: false

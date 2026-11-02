@@ -1,11 +1,18 @@
 ## =============================================================================
-## 测试专用配置：用 H2 内存库，mvn test 不依赖本机 MySQL
+## 测试专用配置：用 H2 内存库，mvn test 不依赖本机 MySQL，也不连真实 Nacos
 ##
 ## MODE=MySQL 让 H2 接受 AUTO_INCREMENT、INSERT IGNORE 等 MySQL 写法，
 ## 从而与生产环境的 schema.sql / data.sql 共用同一份脚本。
 ## 要注意 MODE=MySQL 只模拟部分行为，最终仍须在真实 MySQL 上验证。
 ## =============================================================================
 spring:
+  # 测试里关闭 Nacos 注册与发现：单元测试不应该依赖外部中间件
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+        register-enabled: false
+
   datasource:
     url: jdbc:h2:mem:usersvc;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
     username: sa

@@ -167,24 +167,92 @@ sequenceDiagram
 
 ---
 
-## 五、服务地址可配置
+## 五、服务发现与地址解析（第 07 周更新）
 
-跨服务调用的地址不写死在代码里，而是放在各服务的 `application.yml`：
+### 5.1 从"固定地址"到"注册中心发现"
+
+第 06 周的做法是把地址写在配置里（`USER_SERVICE_URL` / `FOOD_SERVICE_URL`）。
+这样虽然能跑，但地址是**部署时写死的**：服务换 IP、扩容成多实例、容器重建后 IP 变化，
+都要改配置重启，本质上还是"人工维护地址表"。
+
+第 07 周接入 Nacos 后改为**按服务名发现**：
+
+| 项目 | 第 06 周（固定地址） | 第 07 周（服务发现） |
+| :--- | :--- | :--- |
+| 地址来源 | `application.yml` 里的固定 URL | 向 Nacos 查询服务名的当前实例列表 |
+| 服务换 IP | 要改配置重启 | 自动跟随，无需改配置 |
+| 多实例 | 不支持（写死一个地址） | 天然支持（能拿到列表，本周取第一个） |
+| 下线感知 | 只能等连接失败 | Nacos 摘除实例后立即查不到 |
+| 配置项 | `USER_SERVICE_URL`、`FOOD_SERVICE_URL` | **已删除**，只剩超时配置 |
+
+### 5.2 注册配置（三个服务一致）
 
 ```yaml
-services:
-  user-service:
-    url: ${USER_SERVICE_URL:http://localhost:8081}
-  food-service:
-    url: ${FOOD_SERVICE_URL:http://localhost:8082}
-    connect-timeout-ms: ${FOOD_SERVICE_CONNECT_TIMEOUT_MS:2000}
-    read-timeout-ms: ${FOOD_SERVICE_READ_TIMEOUT_MS:3000}
+spring:
+  application:
+    name: user-service          # ← Nacos 里的服务名，三个服务各自不同
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:PERSONAL_GROUP}
+        register-enabled: ${NACOS_REGISTER_ENABLED:true}
+        enabled: ${NACOS_DISCOVERY_ENABLED:true}
 ```
 
-- 默认值指向 `localhost`，本地单独调试时零配置；
-- 在 compose 里通过环境变量覆盖成 `http://user-service:8081`（**用服务名，不用 localhost**）；
-- 超时必须显式配置：`RestTemplate` 默认的超时是无限的，某个依赖卡住会拖死整个请求，
-  甚至把线程池占满。这里连接超时 2 秒、读取超时 3 秒。
+| 服务 | `spring.application.name`（= Nacos 服务名） | 端口 |
+| :--- | :--- | ---: |
+| user-service | `user-service` | 8081 |
+| food-service | `food-service` | 8082 |
+| meal-service | `meal-service` | 8083 |
+
+**分组统一为 `PERSONAL_GROUP`**：参与调用的三个服务必须在同一命名空间 + 同一分组，
+否则 `DiscoveryClient.getInstances()` 查不到对方的实例。命名空间默认用 `public`，
+自定义时填的是**命名空间 ID** 而不是名称。
+
+### 5.3 寻址组件
+
+业务代码不直接依赖 Spring Cloud 的 `DiscoveryClient`，而是抽一层自己的接口：
+
+```java
+public interface ServiceInstanceResolver {
+    /** 服务名 → http://ip:port；查不到实例时抛 DependencyUnavailableException（503） */
+    String resolveBaseUrl(String serviceName);
+}
+```
+
+| 实现 | 用途 |
+| :--- | :--- |
+| `DiscoveryServiceInstanceResolver` | 生产用：包装 `DiscoveryClient`，每次调用都向注册中心现查 |
+| `TestDiscoveryConfig` 里的桩 | 测试用：固定返回 `http://localhost:18081` / `18082`，不连 Nacos |
+
+这样做有三个好处：
+
+1. **避免 Bean 歧义** —— Spring Cloud 在关闭 Nacos 时会同时注册
+   `compositeDiscoveryClient` 与 `simpleDiscoveryClient` 两个 primary 的 `DiscoveryClient`，
+   直接注入会报"多于一个 primary bean"；
+2. **测试干净** —— 替换一个自己的接口，比顶掉 `DiscoveryClient` 破坏 Spring Cloud 装配要安全；
+3. **可换实现** —— 将来换 Eureka / Consul 只改这一层。
+
+### 5.4 为什么不缓存实例地址
+
+每次调用都向 `DiscoveryClient` 查一次（Nacos 客户端内部有本地缓存，开销很小），
+而不是启动时查一次就存起来：
+
+- 实例会上下线、换 IP、扩容；
+- 缓存地址意味着"对方重启后本服务还往老地址发请求"，而且这种错误只在对方重启后暴露；
+- 多一次本地查询换来地址始终正确，这笔账是划算的。
+
+本周**只要求取一个实例完成调用**，不做轮询 / 权重 / 重试 / 熔断（作业明确不要求）。
+
+### 5.5 超时仍然保留
+
+无论地址从哪来，`RestTemplate` 的默认超时都是**无限**的。
+某个依赖卡住不响应会占满请求线程，进而拖垮整个服务 —— 这是拆分后最典型的连锁故障。
+因此 `HttpClientConfig` 里仍然显式设置连接超时 2 秒、读取超时 3 秒，并可用环境变量覆盖。
 
 ---
 

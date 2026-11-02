@@ -330,16 +330,18 @@ docker compose up -d         # 重新启动
 curl.exe "http://localhost:8080/api/meals?eater=docker-user"   # 记录仍在
 ```
 
-### 6.6 微服务版本（Week 06）
+### 6.6 微服务版本（Week 06 拆分 + Week 07 服务发现）
 
 第 06 周把单体拆成了 **3 个独立 Spring Boot 服务**，单体仍然保留在 `monolith/` 里，未做改动。
 拆分理由、服务边界与数据归属见 **[docs/microservices-design.md](docs/microservices-design.md)**。
 
-| 服务 | 端口 | 独立数据库 | 拥有的表 | 依赖谁 |
-| :--- | ---: | :--- | :--- | :--- |
-| user-service | 8081 | `health_diet_user` | `app_user` | 无 |
-| food-service | 8082 | `health_diet_food` | `food` | 无 |
-| meal-service | 8083 | `health_diet_meal` | `meal_record`、`meal_item` | user-service、food-service |
+第 07 周把跨服务调用从**固定地址**改为**通过 Nacos 服务名发现实例**（见 6.7 节）。
+
+| 服务 | 端口 | Nacos 服务名 | 独立数据库 | 拥有的表 | 依赖谁 |
+| :--- | ---: | :--- | :--- | :--- | :--- |
+| user-service | 8081 | `user-service` | `health_diet_user` | `app_user` | 无 |
+| food-service | 8082 | `food-service` | `health_diet_food` | `food` | 无 |
+| meal-service | 8083 | `meal-service` | `health_diet_meal` | `meal_record`、`meal_item` | user-service、food-service（**按服务名发现**） |
 
 三个库建在同一个 MySQL 实例里，但用**三个独立账号**隔离：
 `svc_meal` 没有另外两个库的任何权限，想拿数据只能走 HTTP。
@@ -348,9 +350,9 @@ curl.exe "http://localhost:8080/api/meals?eater=docker-user"   # 记录仍在
 
 ```powershell
 # 仓库根目录
-Copy-Item .env.example .env      # 把所有 change-me-... 改成自己的口令
+Copy-Item .env.example .env      # 把所有 change-me-... 改成自己的口令/密钥
 docker compose up -d --build
-docker compose ps                # 期望：mysql + 三个服务全部 healthy
+docker compose ps                # 期望：nacos + mysql + 三个服务
 ```
 
 > **从第 05 周切换过来时注意**：MySQL 的初始化脚本只在数据目录为空时执行，
@@ -432,6 +434,111 @@ docker compose stop user-service
 curl.exe -X POST http://localhost:8083/api/meals -H "Content-Type: application/json" -d '{\"userId\":1,\"mealType\":\"LUNCH\",\"eatenAt\":\"2026-10-25T15:00:00\",\"items\":[{\"foodId\":1,\"portionGrams\":100}]}'
 docker compose start user-service
 ```
+
+### 6.7 服务注册与发现（Week 07 · Nacos）
+
+第 07 周把 `meal-service` 调用另外两个服务的方式，从**固定地址**改成了
+**通过 Nacos 按服务名发现实例**。第 06 周的 `USER_SERVICE_URL` / `FOOD_SERVICE_URL`
+两个配置项已删除，地址改为运行时向注册中心查询。
+
+| 组件 | 版本 | 说明 |
+| :--- | :--- | :--- |
+| Nacos Server | `nacos/nacos-server:v3.2.4` | 单机模式，内置 Derby |
+| Spring Cloud Alibaba | `2025.1.0.0` | 对应 Spring Cloud 2025.1.0 / Spring Boot 4.0.x |
+| Nacos Client | 由 BOM 决定 | **不单独覆盖版本** |
+
+#### 端口说明（Nacos 3.x 控制台与主端口已分离）
+
+| 端口 | 作用 |
+| :--- | :--- |
+| **18080** | 控制台页面：<http://localhost:18080/>（映射容器 8080） |
+| 8848 | HTTP API（Admin API、登录拿 accessToken） |
+| 9848 | 客户端 gRPC（注册、订阅、心跳） |
+
+> 控制台**不是**旧版的 `http://localhost:8848/nacos`。
+
+#### 启动顺序
+
+```powershell
+cd C:\Users\31238\Documents\course-repo
+
+# ① 先只启动 Nacos
+docker compose up -d nacos
+
+# ② 打开控制台 http://localhost:18080/ ，首次会要求初始化管理员 nacos 的密码
+#    把该密码填进 .env 的 NACOS_PASSWORD（不填的话业务服务注册会 403）
+
+# ③ 再启动三个业务服务
+docker compose up -d --build user-service food-service meal-service
+docker compose ps
+```
+
+#### 查看服务列表
+
+```powershell
+# 服务名列表
+curl.exe "http://localhost:8848/nacos/v3/client/ns/service/list?pageNo=1&pageSize=20&groupName=PERSONAL_GROUP"
+
+# 某个服务的实例（IP + 端口）
+curl.exe "http://localhost:8848/nacos/v3/client/ns/instance/list?serviceName=user-service&groupName=PERSONAL_GROUP"
+```
+
+也可以直接在控制台看：<http://localhost:18080/> → 服务管理 → 服务列表，
+分组选 `PERSONAL_GROUP`，应能看到 `user-service`、`food-service`、`meal-service`。
+
+#### 配置项一览
+
+三个服务的 `spring.cloud.nacos.discovery` 完全一致，只有 `spring.application.name` 不同：
+
+```yaml
+spring:
+  application:
+    name: user-service            # ← Nacos 里的服务名
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:PERSONAL_GROUP}
+```
+
+| 环境变量 | 说明 |
+| :--- | :--- |
+| `NACOS_SERVER_ADDR` | 服务端地址，compose 里为 `nacos:8848` |
+| `NACOS_USERNAME` / `NACOS_PASSWORD` | 访问 Nacos 的账号（与控制台初始化的一致） |
+| `NACOS_GROUP` | 统一为 `PERSONAL_GROUP`，参与调用的服务必须一致 |
+| `NACOS_NAMESPACE` | 留空 = 默认 `public`；自定义时填命名空间 **ID** |
+| `NACOS_AUTH_TOKEN` 等 | Nacos 服务端自身的鉴权配置，只在 `.env` 里，仓库只有占位模板 |
+
+#### 服务发现的测试命令
+
+各服务测试**不依赖真实 Nacos、MySQL 或网络**（H2 + 寻址桩 + MockRestServiceServer）：
+
+```powershell
+cd services/user-service && mvn test        # 5 个测试
+cd ../food-service     && mvn test          # 5 个测试
+cd ../meal-service     && mvn test          # 9 个测试（含 2 个"实例列表为空"用例）
+```
+
+一次跑完三个：
+
+```powershell
+mvn -f services/user-service/pom.xml test
+mvn -f services/food-service/pom.xml test
+mvn -f services/meal-service/pom.xml test
+```
+
+#### 冒烟脚本
+
+```bash
+bash scripts/smoke-test.sh
+```
+
+除了第 06 周的检查项，第 07 周新增：
+**先检查 Nacos 控制台可访问**（`http://localhost:18080/index.html`，不是旧地址），
+再检查三个服务的健康接口。任何一项失败脚本都会返回非零退出码。
 
 ## 七、数据库设计
 

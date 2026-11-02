@@ -17,12 +17,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
+import com.zjgsu.hdt.meal.client.FoodClient;
+import com.zjgsu.hdt.meal.client.ServiceInstanceResolver;
+import com.zjgsu.hdt.meal.client.UserClient;
 import com.zjgsu.hdt.meal.dto.MealItemRequest;
 import com.zjgsu.hdt.meal.dto.MealRequest;
 import com.zjgsu.hdt.meal.dto.MealResponse;
@@ -33,6 +37,10 @@ import com.zjgsu.hdt.meal.service.MealRecordService;
 
 /**
  * meal-service 的测试 —— 重点验证<strong>跨服务流程</strong>。
+ *
+ * <p>第 07 周之后跨服务地址来自 Nacos 服务发现，因此本类导入
+ * {@link TestDiscoveryConfig}：它提供一个返回固定实例的 {@code DiscoveryClient} 桩，
+ * 让测试不必连接真实 Nacos，同时仍能验证"发现出来的地址被拼进业务路径"。
  *
  * <p>用 {@link MockRestServiceServer} 绑在真实的 RestTemplate 上：
  * 这样测到的是真正的 HTTP 客户端行为（状态码处理、异常翻译），
@@ -46,6 +54,7 @@ import com.zjgsu.hdt.meal.service.MealRecordService;
  */
 @SpringBootTest
 @ActiveProfiles("test")
+@Import(TestDiscoveryConfig.class)
 class MealRecordServiceTests {
 
     @Autowired
@@ -271,6 +280,78 @@ class MealRecordServiceTests {
         )))
                 .isInstanceOf(com.zjgsu.hdt.meal.exception.BusinessRuleException.class)
                 .hasMessageContaining("1500");
+
+        assertThat(mealRecordRepository.count()).isEqualTo(before);
+    }
+
+    // -------------------------------------------------------------------------
+    // 服务发现：实例列表为空
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("服务发现：查不到 user-service 实例 → 抛 503 语义异常且不写本地库")
+    void emptyUserInstanceListDoesNotWrite() {
+        long before = mealRecordRepository.count();
+
+        // 就地构造一个"解析即抛 503"的寻址桩 —— 模拟服务已下线 / 从未注册
+        ServiceInstanceResolver emptyResolver = serviceName -> {
+            throw new DependencyUnavailableException(serviceName,
+                    "Nacos 中查不到可用实例（测试桩）");
+        };
+
+        // 用空实例的寻址桩组装客户端与服务，直接调用（不经过 Spring 容器）
+        MealRecordService serviceWithEmptyDiscovery = new MealRecordService(
+                mealRecordRepository,
+                new UserClient(restTemplate, emptyResolver),
+                new FoodClient(restTemplate, emptyResolver)
+        );
+
+        assertThatThrownBy(() -> serviceWithEmptyDiscovery.create(new MealRequest(
+                1L, "LUNCH", LocalDateTime.of(2026, 10, 30, 12, 30), "无可用实例",
+                List.of(new MealItemRequest(1L, 200))
+        )))
+                .isInstanceOf(DependencyUnavailableException.class)
+                .hasMessageContaining("查不到可用实例");
+
+        // 关键：没有实例时不能"跳过校验直接写"
+        assertThat(mealRecordRepository.count())
+                .as("实例列表为空时不得写本地库")
+                .isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("服务发现：user-service 有实例、food-service 无实例 → 同样 503 且不写本地库")
+    void emptyFoodInstanceListDoesNotWrite() {
+        long before = mealRecordRepository.count();
+
+        // 用户能解析到实例，食物解析时抛 503
+        ServiceInstanceResolver onlyUser = serviceName -> {
+            if ("user-service".equals(serviceName)) {
+                return "http://localhost:18081";
+            }
+            throw new DependencyUnavailableException(serviceName,
+                    "Nacos 中查不到可用实例（测试桩）");
+        };
+
+        MealRecordService service = new MealRecordService(
+                mealRecordRepository,
+                new UserClient(restTemplate, onlyUser),
+                new FoodClient(restTemplate, onlyUser)
+        );
+
+        // 用户校验会真的发出一次 HTTP，需要 MockRestServiceServer 接住
+        server.expect(requestTo("http://localhost:18081/api/users/1"))
+                .andRespond(withSuccess("""
+                        {"id":1,"username":"demo-user","displayName":"演示用户","dailyTargetKcal":2000}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> service.create(new MealRequest(
+                1L, "DINNER", LocalDateTime.of(2026, 10, 30, 19, 0), "食物服务无实例",
+                List.of(new MealItemRequest(1L, 100))
+        )))
+                .isInstanceOf(DependencyUnavailableException.class)
+                .hasMessageContaining("food-service")
+                .hasMessageContaining("查不到可用实例");
 
         assertThat(mealRecordRepository.count()).isEqualTo(before);
     }

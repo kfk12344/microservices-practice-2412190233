@@ -22,7 +22,41 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
+    <!--
+      第 07 周：服务注册与发现。
+      用课程统一 BOM 管理 Discovery 依赖，不在 dependency 里单独写版本。
+        Spring Cloud Alibaba 2025.1.0.0 → Spring Cloud 2025.1.0 → Spring Boot 4.0.x
+      本周只引入 Discovery Starter，不引入 Config Starter。
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>2025.1.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>2025.1.0.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
+        <!--
+          服务注册 + 服务发现。
+          本服务既把自己注册到 Nacos，也要通过 DiscoveryClient 找到
+          user-service 与 food-service 的实际实例地址。
+        -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>

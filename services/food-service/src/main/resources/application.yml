@@ -11,6 +11,21 @@ spring:
   application:
     name: food-service
 
+  # ---------------------------------------------------------------------------
+  # 第 07 周：注册到 Nacos（服务名 = spring.application.name = food-service）
+  # 地址、凭据、命名空间、分组全部可用环境变量覆盖，仓库里不写真实密钥。
+  # ---------------------------------------------------------------------------
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:PERSONAL_GROUP}
+        register-enabled: ${NACOS_REGISTER_ENABLED:true}
+        enabled: ${NACOS_DISCOVERY_ENABLED:true}
+
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/health_diet_food?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
     username: ${DB_USERNAME:svc_food}

@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # =============================================================================
-# smoke-test.sh —— 第 06 周微服务冒烟测试
+# smoke-test.sh —— 微服务冒烟测试（第 06 周起，第 07 周加入服务发现）
 #
 # 必须能从【仓库根目录】直接运行：
 #     bash scripts/smoke-test.sh
 #
 # 覆盖内容：
+#   0. Nacos 控制台可访问（第 07 周新增，用 3.x 的控制台端口，不是 8848/nacos）
 #   1. 三个服务各自的健康接口
-#   2. 一次完整的跨服务业务流程（meal-service 调 user-service + food-service）
+#   2. 一次完整的跨服务业务流程（meal-service 通过服务发现调 user + food）
 #   3. 依赖资源不存在（用户/食物不存在）→ 400，且不写本地库
 #   4. 违反业务规则（单餐热量超限）→ 422，且不写本地库
 #   5. 依赖服务不可用（停掉 user-service）→ 503，且不写本地库，随后恢复
+#      —— 停掉后 Nacos 会摘除该实例，meal-service 再查就是空实例列表，
+#         这正是"服务发现 + 空实例处理"要验证的场景
 #
-# 退出码：全部通过 0，有失败 1
+# 退出码：全部通过 0，有失败 1（任何一项失败都会返回非零，不会忽略错误报成功）
 # =============================================================================
 
 set -uo pipefail
@@ -25,6 +28,9 @@ set -uo pipefail
 USER_BASE="${USER_BASE:-http://localhost:8081}"
 FOOD_BASE="${FOOD_BASE:-http://localhost:8082}"
 MEAL_BASE="${MEAL_BASE:-http://localhost:8083}"
+# Nacos 控制台地址：3.x 起控制台与主端口分离，控制台在 8080，
+# 本项目在 compose 里映射到宿主机 18080（不是旧版的 http://localhost:8848/nacos）
+NACOS_CONSOLE="${NACOS_CONSOLE:-http://localhost:18080}"
 
 PASS=0
 FAIL=0
@@ -101,7 +107,24 @@ meal_count() {
 }
 
 # =============================================================================
-section "开始前检查：三个服务的健康接口"
+section "开始前检查 1/2：Nacos 控制台可访问"
+# =============================================================================
+# 注意用的是 Nacos 3.x 的【控制台端口】（默认 8080，本项目映射到宿主机 18080），
+# 不是旧版 2.x 的 http://localhost:8848/nacos 控制台地址 —— 3.0 起控制台与主端口已分离。
+#
+# 另外 3.x 控制台的页面入口是 /next/（访问 / 会 302 跳到这里），
+# 直接请求 /index.html 会返回 500。这里跟随跳转并接受 200。
+NACOS_HTTP="$(
+    curl -sSL -o /dev/null -w '%{http_code}' --max-time 15 "$NACOS_CONSOLE/" 2>/dev/null
+)"
+if [ "$NACOS_HTTP" = "200" ]; then
+    ok "Nacos 控制台可访问（$NACOS_CONSOLE/ → /next/）"
+else
+    bad "Nacos 控制台不可访问" "HTTP $NACOS_HTTP（$NACOS_CONSOLE/）；请确认 nacos 容器已启动、18080 端口已映射"
+fi
+
+# =============================================================================
+section "开始前检查 2/2：三个服务的健康接口"
 # =============================================================================
 # 注意分隔符用 "|" 而不是 ":" —— 地址本身含冒号（http://host:port），
 # 用冒号做分隔会被 ${var##*:} 截到端口号，导致请求发到 "8081/actuator/health"。
@@ -118,7 +141,7 @@ done
 
 if [ "$FAIL" -gt 0 ]; then
     echo ""
-    echo "服务没全部就绪，后续用例不再执行。请先 docker compose ps 确认三个服务都 healthy。"
+    echo "服务没全部就绪，后续用例不再执行。请先 docker compose ps 确认 nacos 与三个服务都正常。"
     exit 1
 fi
 
