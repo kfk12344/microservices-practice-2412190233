@@ -2,49 +2,51 @@ package com.zjgsu.hdt.meal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.when;
 
-import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-import com.zjgsu.hdt.meal.client.FoodClient;
-import com.zjgsu.hdt.meal.client.ServiceInstanceResolver;
-import com.zjgsu.hdt.meal.client.UserClient;
+import com.zjgsu.hdt.meal.client.FoodFeignApi;
+import com.zjgsu.hdt.meal.client.FoodInfo;
+import com.zjgsu.hdt.meal.client.InstanceHitRecorder;
+import com.zjgsu.hdt.meal.client.UserFeignApi;
+import com.zjgsu.hdt.meal.client.UserInfo;
 import com.zjgsu.hdt.meal.dto.MealItemRequest;
 import com.zjgsu.hdt.meal.dto.MealRequest;
 import com.zjgsu.hdt.meal.dto.MealResponse;
+import com.zjgsu.hdt.meal.exception.BusinessRuleException;
 import com.zjgsu.hdt.meal.exception.DependencyResourceNotFoundException;
 import com.zjgsu.hdt.meal.exception.DependencyUnavailableException;
 import com.zjgsu.hdt.meal.repository.MealRecordRepository;
 import com.zjgsu.hdt.meal.service.MealRecordService;
 
+import feign.FeignException;
+import feign.Request;
+
 /**
  * meal-service 的测试 —— 重点验证<strong>跨服务流程</strong>。
  *
- * <p>第 07 周之后跨服务地址来自 Nacos 服务发现，因此本类导入
- * {@link TestDiscoveryConfig}：它提供一个返回固定实例的 {@code DiscoveryClient} 桩，
- * 让测试不必连接真实 Nacos，同时仍能验证"发现出来的地址被拼进业务路径"。
+ * <p>第 08 周起跨服务调用改为 OpenFeign，所以这里不再用
+ * {@code MockRestServiceServer} 绑 RestTemplate，而是用 {@link MockitoBean}
+ * 替换掉两个 Feign 接口（{@link UserFeignApi} / {@link FoodFeignApi}）。
  *
- * <p>用 {@link MockRestServiceServer} 绑在真实的 RestTemplate 上：
- * 这样测到的是真正的 HTTP 客户端行为（状态码处理、异常翻译），
- * 而不是把客户端整个 mock 掉 —— 后者测不出"404 与连不上被区分成两种错误"这件事。
+ * <p>注意 mock 的是 <strong>Feign 接口</strong>而不是门面类：
+ * 门面保持真实，于是"HTTP 失败 → 业务异常"的翻译逻辑仍然被真实执行到了 ——
+ * 这正是要覆盖的部分：404 要变成"对方明确说没有"（对外 400），
+ * 连不上/无实例要变成"下游不可用"（对外 503），两者不能混为一谈。
  *
  * <p>每个用例都断言"失败时本地没有多出记录"，这是作业要求的硬性约束：
  * 依赖资源不存在或服务不可用时，不能跳过校验继续写入本地数据。
@@ -54,7 +56,6 @@ import com.zjgsu.hdt.meal.service.MealRecordService;
  */
 @SpringBootTest
 @ActiveProfiles("test")
-@Import(TestDiscoveryConfig.class)
 class MealRecordServiceTests {
 
     @Autowired
@@ -64,23 +65,64 @@ class MealRecordServiceTests {
     private MealRecordRepository mealRecordRepository;
 
     @Autowired
-    private RestTemplate restTemplate;
+    private InstanceHitRecorder instanceHitRecorder;
 
-    private MockRestServiceServer server;
+    /** 替换真实的 Feign 代理：不发 HTTP，但接口契约与真实调用一致。 */
+    @MockitoBean
+    private UserFeignApi userFeignApi;
+
+    @MockitoBean
+    private FoodFeignApi foodFeignApi;
 
     @BeforeEach
     void setUp() {
-        server = MockRestServiceServer.bindTo(restTemplate).build();
-    }
-
-    @AfterEach
-    void tearDown() {
-        server.reset();
+        // 统计是跨用例共享的单例，逐个用例清空，避免断言互相污染
+        instanceHitRecorder.reset();
     }
 
     // -------------------------------------------------------------------------
-    // 正常路径
+    // 测试数据：与 db/init 里的种子营养值保持一致
     // -------------------------------------------------------------------------
+
+    /** 用户 1（响应里的 servedBy 用于验证负载均衡记录）。 */
+    private static UserInfo demoUser() {
+        return new UserInfo(1L, "demo-user", "演示用户", 2000, "user-service-1");
+    }
+
+    /** 米饭：116 kcal / 100g。 */
+    private static FoodInfo rice() {
+        return new FoodInfo(1L, "米饭", "主食",
+                new BigDecimal("116.00"), new BigDecimal("2.60"),
+                new BigDecimal("0.30"), new BigDecimal("25.90"),
+                "food-service-1");
+    }
+
+    /** 鸡胸肉：133 kcal / 100g。 */
+    private static FoodInfo chicken() {
+        return new FoodInfo(3L, "鸡胸肉", "蛋白质",
+                new BigDecimal("133.00"), new BigDecimal("24.60"),
+                new BigDecimal("2.50"), new BigDecimal("0.60"),
+                "food-service-2");
+    }
+
+    /** 构造一个真实的 Feign 404 异常，验证门面对"对方明确说没有"的处理。 */
+    private static FeignException.NotFound feignNotFound(String path) {
+        Request request = Request.create(Request.HttpMethod.GET, path,
+                Map.of(), null, StandardCharsets.UTF_8);
+        return new FeignException.NotFound("404 " + path, request, null, Map.of());
+    }
+
+    /**
+     * 构造"LoadBalancer 挑不到实例"的异常。
+     *
+     * <p>Spring Cloud LoadBalancer 在没有可用实例时抛的就是这个（类型为
+     * {@code IllegalStateException}），它不是 FeignException，所以门面必须靠兜底的
+     * catch 才能把它识别成 503。
+     */
+    private static IllegalStateException noInstance(String serviceName) {
+        return new IllegalStateException(
+                "Load balancer does not contain an instance for the service " + serviceName);
+    }
 
     @Test
     @DisplayName("上下文能加载，且 data.sql 的种子记录与明细已灌入")
@@ -105,25 +147,9 @@ class MealRecordServiceTests {
     void createSucceedsWhenDependenciesResolve() {
         long before = mealRecordRepository.count();
 
-        // user-service 返回用户 1
-        server.expect(requestTo("http://localhost:18081/api/users/1"))
-                .andRespond(withSuccess("""
-                        {"id":1,"username":"demo-user","displayName":"演示用户","dailyTargetKcal":2000}
-                        """, MediaType.APPLICATION_JSON));
-        // food-service 返回米饭（116 kcal/100g）
-        server.expect(requestTo("http://localhost:18082/api/foods/1"))
-                .andRespond(withSuccess("""
-                        {"id":1,"name":"米饭","category":"主食",
-                         "caloriesPer100g":116.00,"proteinPer100g":2.60,
-                         "fatPer100g":0.30,"carbsPer100g":25.90}
-                        """, MediaType.APPLICATION_JSON));
-        // food-service 返回鸡胸肉（133 kcal/100g）
-        server.expect(requestTo("http://localhost:18082/api/foods/3"))
-                .andRespond(withSuccess("""
-                        {"id":3,"name":"鸡胸肉","category":"蛋白质",
-                         "caloriesPer100g":133.00,"proteinPer100g":24.60,
-                         "fatPer100g":2.50,"carbsPer100g":0.60}
-                        """, MediaType.APPLICATION_JSON));
+        when(userFeignApi.getUser(1L)).thenReturn(demoUser());
+        when(foodFeignApi.getFood(1L)).thenReturn(rice());
+        when(foodFeignApi.getFood(3L)).thenReturn(chicken());
 
         MealResponse response = mealRecordService.create(new MealRequest(
                 1L, "LUNCH", LocalDateTime.of(2026, 10, 20, 12, 30), "跨服务测试",
@@ -132,8 +158,6 @@ class MealRecordServiceTests {
                         new MealItemRequest(3L, 150)
                 )
         ));
-
-        server.verify();
 
         // 米饭 116×2 = 232.00，鸡胸肉 133×1.5 = 199.50，合计 431.50
         assertThat(response.id()).isNotNull();
@@ -148,19 +172,48 @@ class MealRecordServiceTests {
         assertThat(mealRecordRepository.count()).isEqualTo(before + 1);
     }
 
-    // -------------------------------------------------------------------------
-    // 失败路径：依赖资源不存在 —— 必须不写本地
-    // -------------------------------------------------------------------------
+    @Test
+    @DisplayName("负载均衡：跨服务调用记录下实际处理请求的实例标识")
+    void recordsWhichInstanceServedTheCall() {
+        long before = mealRecordRepository.count();
+
+        when(userFeignApi.getUser(1L)).thenReturn(demoUser());
+        // 同一个食物 ID 依次返回不同实例，模拟"两次调用落到了不同实例上"
+        when(foodFeignApi.getFood(1L))
+                .thenReturn(rice())
+                .thenReturn(new FoodInfo(1L, "米饭", "主食",
+                        new BigDecimal("116.00"), new BigDecimal("2.60"),
+                        new BigDecimal("0.30"), new BigDecimal("25.90"),
+                        "food-service-2"));
+
+        // 两次下单 → 两次 user 调用、两次 food 调用
+        for (int i = 0; i < 2; i++) {
+            mealRecordService.create(new MealRequest(
+                    1L, "LUNCH", LocalDateTime.of(2026, 10, 25, 12, 30), "负载均衡验证",
+                    List.of(new MealItemRequest(1L, 100))));
+        }
+
+        Map<String, Map<String, Integer>> hits = instanceHitRecorder.snapshot();
+
+        assertThat(hits).containsKey(UserFeignApi.SERVICE_NAME);
+        assertThat(hits.get(UserFeignApi.SERVICE_NAME))
+                .as("user-service 的调用应被记录到 user-service-1")
+                .containsEntry("user-service-1", 2);
+
+        assertThat(hits.get(FoodFeignApi.SERVICE_NAME))
+                .as("food-service 的两次调用应分别落在两个实例上")
+                .containsEntry("food-service-1", 1)
+                .containsEntry("food-service-2", 1);
+
+        assertThat(mealRecordRepository.count()).isEqualTo(before + 2);
+    }
 
     @Test
     @DisplayName("用户不存在（user-service 返回 404）→ 抛异常且不写本地库")
     void userNotFoundDoesNotWrite() {
         long before = mealRecordRepository.count();
 
-        server.expect(requestTo("http://localhost:18081/api/users/99"))
-                .andRespond(withStatus(HttpStatus.NOT_FOUND)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body("{\"code\":\"RESOURCE_NOT_FOUND\",\"message\":\"用户不存在：id=99\"}"));
+        when(userFeignApi.getUser(99L)).thenThrow(feignNotFound("http://user-service/api/users/99"));
 
         assertThatThrownBy(() -> mealRecordService.create(new MealRequest(
                 99L, "LUNCH", LocalDateTime.of(2026, 10, 21, 12, 30), "用户不存在",
@@ -181,19 +234,11 @@ class MealRecordServiceTests {
     void foodNotFoundDoesNotWrite() {
         long before = mealRecordRepository.count();
 
-        // 用户校验先通过
-        server.expect(requestTo("http://localhost:18081/api/users/1"))
-                .andRespond(withSuccess("""
-                        {"id":1,"username":"demo-user","displayName":"演示用户","dailyTargetKcal":2000}
-                        """, MediaType.APPLICATION_JSON));
-        // 食物不存在
-        server.expect(requestTo("http://localhost:18082/api/foods/999"))
-                .andRespond(withStatus(HttpStatus.NOT_FOUND)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body("{\"code\":\"RESOURCE_NOT_FOUND\",\"message\":\"食物不存在：id=999\"}"));
+        when(userFeignApi.getUser(1L)).thenReturn(demoUser());
+        when(foodFeignApi.getFood(999L)).thenThrow(feignNotFound("http://food-service/api/foods/999"));
 
         assertThatThrownBy(() -> mealRecordService.create(new MealRequest(
-                1L, "DINNER", LocalDateTime.of(2026, 10, 21, 19, 0), "食物不存在",
+                1L, "DINNER", LocalDateTime.of(2026, 10, 22, 19, 0), "食物不存在",
                 List.of(new MealItemRequest(999L, 100))
         )))
                 .isInstanceOf(DependencyResourceNotFoundException.class)
@@ -205,113 +250,84 @@ class MealRecordServiceTests {
                 .isEqualTo(before);
     }
 
-    // -------------------------------------------------------------------------
-    // 失败路径：依赖服务不可用 —— 必须不写本地
-    // -------------------------------------------------------------------------
-
     @Test
     @DisplayName("user-service 连不上 → 抛 503 语义的异常且不写本地库")
-    void userServiceUnavailableDoesNotWrite() {
+    void userServiceUnreachableDoesNotWrite() {
         long before = mealRecordRepository.count();
 
-        server.expect(requestTo("http://localhost:18081/api/users/1"))
-                .andRespond(withException(new IOException("Connection refused")));
+        // 连接被拒绝：Feign 会包成 RetryableException（cause 是 IOException）
+        when(userFeignApi.getUser(anyLong()))
+                .thenThrow(new RuntimeException(new java.net.ConnectException("Connection refused")));
 
         assertThatThrownBy(() -> mealRecordService.create(new MealRequest(
-                1L, "LUNCH", LocalDateTime.of(2026, 10, 22, 12, 30), "服务不可用",
+                1L, "DINNER", LocalDateTime.of(2026, 10, 23, 19, 0), "连接失败",
                 List.of(new MealItemRequest(1L, 200))
         )))
                 .isInstanceOf(DependencyUnavailableException.class)
-                .hasMessageContaining("user-service");
+                .hasMessageContaining(UserFeignApi.SERVICE_NAME);
 
         assertThat(mealRecordRepository.count())
-                .as("依赖服务不可用时不得跳过校验写本地库")
+                .as("依赖不可用时不得写本地库")
                 .isEqualTo(before);
     }
 
     @Test
     @DisplayName("food-service 连不上 → 抛 503 语义的异常且不写本地库")
-    void foodServiceUnavailableDoesNotWrite() {
+    void foodServiceUnreachableDoesNotWrite() {
         long before = mealRecordRepository.count();
 
-        server.expect(requestTo("http://localhost:18081/api/users/1"))
-                .andRespond(withSuccess("""
-                        {"id":1,"username":"demo-user","displayName":"演示用户","dailyTargetKcal":2000}
-                        """, MediaType.APPLICATION_JSON));
-        server.expect(requestTo("http://localhost:18082/api/foods/1"))
-                .andRespond(withException(new IOException("Read timed out")));
+        when(userFeignApi.getUser(1L)).thenReturn(demoUser());
+        when(foodFeignApi.getFood(anyLong()))
+                .thenThrow(new RuntimeException(new java.net.SocketTimeoutException("Read timed out")));
 
         assertThatThrownBy(() -> mealRecordService.create(new MealRequest(
-                1L, "LUNCH", LocalDateTime.of(2026, 10, 22, 12, 30), "服务不可用",
+                1L, "LUNCH", LocalDateTime.of(2026, 10, 24, 12, 30), "读取超时",
                 List.of(new MealItemRequest(1L, 200))
         )))
                 .isInstanceOf(DependencyUnavailableException.class)
-                .hasMessageContaining("food-service");
+                .hasMessageContaining(FoodFeignApi.SERVICE_NAME);
 
         assertThat(mealRecordRepository.count())
-                .as("依赖服务不可用时不得跳过校验写本地库")
+                .as("依赖不可用时不得写本地库")
                 .isEqualTo(before);
     }
-
-    // -------------------------------------------------------------------------
-    // 业务规则
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("业务规则：单餐热量超过 1500 kcal → 422 语义的异常，且不写本地库")
     void businessRuleRejectsExcessiveCalories() {
         long before = mealRecordRepository.count();
 
-        server.expect(requestTo("http://localhost:18081/api/users/1"))
-                .andRespond(withSuccess("""
-                        {"id":1,"username":"demo-user","displayName":"演示用户","dailyTargetKcal":2000}
-                        """, MediaType.APPLICATION_JSON));
+        when(userFeignApi.getUser(1L)).thenReturn(demoUser());
         // 米饭 116 kcal/100g × 2000g = 2320 kcal，超过 1500
-        server.expect(requestTo("http://localhost:18082/api/foods/1"))
-                .andRespond(withSuccess("""
-                        {"id":1,"name":"米饭","category":"主食",
-                         "caloriesPer100g":116.00,"proteinPer100g":2.60,
-                         "fatPer100g":0.30,"carbsPer100g":25.90}
-                        """, MediaType.APPLICATION_JSON));
+        when(foodFeignApi.getFood(1L)).thenReturn(rice());
 
         assertThatThrownBy(() -> mealRecordService.create(new MealRequest(
                 1L, "LUNCH", LocalDateTime.of(2026, 10, 23, 12, 30), "超量",
                 List.of(new MealItemRequest(1L, 2000))
         )))
-                .isInstanceOf(com.zjgsu.hdt.meal.exception.BusinessRuleException.class)
+                .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("1500");
 
         assertThat(mealRecordRepository.count()).isEqualTo(before);
     }
 
     // -------------------------------------------------------------------------
-    // 服务发现：实例列表为空
+    // 负载均衡挑不到实例（相当于第 07 周的"服务发现查不到实例"）
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("服务发现：查不到 user-service 实例 → 抛 503 语义异常且不写本地库")
-    void emptyUserInstanceListDoesNotWrite() {
+    @DisplayName("负载均衡：user-service 没有可用实例 → 抛 503 语义异常且不写本地库")
+    void noUserServiceInstanceDoesNotWrite() {
         long before = mealRecordRepository.count();
 
-        // 就地构造一个"解析即抛 503"的寻址桩 —— 模拟服务已下线 / 从未注册
-        ServiceInstanceResolver emptyResolver = serviceName -> {
-            throw new DependencyUnavailableException(serviceName,
-                    "Nacos 中查不到可用实例（测试桩）");
-        };
+        when(userFeignApi.getUser(anyLong())).thenThrow(noInstance(UserFeignApi.SERVICE_NAME));
 
-        // 用空实例的寻址桩组装客户端与服务，直接调用（不经过 Spring 容器）
-        MealRecordService serviceWithEmptyDiscovery = new MealRecordService(
-                mealRecordRepository,
-                new UserClient(restTemplate, emptyResolver),
-                new FoodClient(restTemplate, emptyResolver)
-        );
-
-        assertThatThrownBy(() -> serviceWithEmptyDiscovery.create(new MealRequest(
+        assertThatThrownBy(() -> mealRecordService.create(new MealRequest(
                 1L, "LUNCH", LocalDateTime.of(2026, 10, 30, 12, 30), "无可用实例",
                 List.of(new MealItemRequest(1L, 200))
         )))
                 .isInstanceOf(DependencyUnavailableException.class)
-                .hasMessageContaining("查不到可用实例");
+                .hasMessageContaining(UserFeignApi.SERVICE_NAME);
 
         // 关键：没有实例时不能"跳过校验直接写"
         assertThat(mealRecordRepository.count())
@@ -320,38 +336,19 @@ class MealRecordServiceTests {
     }
 
     @Test
-    @DisplayName("服务发现：user-service 有实例、food-service 无实例 → 同样 503 且不写本地库")
-    void emptyFoodInstanceListDoesNotWrite() {
+    @DisplayName("负载均衡：user-service 正常、food-service 无实例 → 同样 503 且不写本地库")
+    void noFoodServiceInstanceDoesNotWrite() {
         long before = mealRecordRepository.count();
 
-        // 用户能解析到实例，食物解析时抛 503
-        ServiceInstanceResolver onlyUser = serviceName -> {
-            if ("user-service".equals(serviceName)) {
-                return "http://localhost:18081";
-            }
-            throw new DependencyUnavailableException(serviceName,
-                    "Nacos 中查不到可用实例（测试桩）");
-        };
+        when(userFeignApi.getUser(1L)).thenReturn(demoUser());
+        when(foodFeignApi.getFood(anyLong())).thenThrow(noInstance(FoodFeignApi.SERVICE_NAME));
 
-        MealRecordService service = new MealRecordService(
-                mealRecordRepository,
-                new UserClient(restTemplate, onlyUser),
-                new FoodClient(restTemplate, onlyUser)
-        );
-
-        // 用户校验会真的发出一次 HTTP，需要 MockRestServiceServer 接住
-        server.expect(requestTo("http://localhost:18081/api/users/1"))
-                .andRespond(withSuccess("""
-                        {"id":1,"username":"demo-user","displayName":"演示用户","dailyTargetKcal":2000}
-                        """, MediaType.APPLICATION_JSON));
-
-        assertThatThrownBy(() -> service.create(new MealRequest(
+        assertThatThrownBy(() -> mealRecordService.create(new MealRequest(
                 1L, "DINNER", LocalDateTime.of(2026, 10, 30, 19, 0), "食物服务无实例",
                 List.of(new MealItemRequest(1L, 100))
         )))
                 .isInstanceOf(DependencyUnavailableException.class)
-                .hasMessageContaining("food-service")
-                .hasMessageContaining("查不到可用实例");
+                .hasMessageContaining(FoodFeignApi.SERVICE_NAME);
 
         assertThat(mealRecordRepository.count()).isEqualTo(before);
     }

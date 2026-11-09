@@ -57,6 +57,24 @@
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
         </dependency>
+        <!--
+            第 08 周：跨服务调用由"手写 RestTemplate + DiscoveryClient 寻址"
+            改为声明式客户端 OpenFeign。
+              * @FeignClient(name = "user-service") 写的是**服务名**而不是 IP；
+              * 服务名交给 LoadBalancer 解析成具体实例，所以实例扩容、换 IP 都不用改代码。
+        -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <!--
+            Feign 的客户端负载均衡实现。缺了它，Feign 拿到服务名也无法在多个实例之间分发，
+            会直接报 "Load balancer does not contain an instance for the service"。
+        -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>

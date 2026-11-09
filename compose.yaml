@@ -112,17 +112,24 @@ services:
 
   # ---------------------------------------------------------------------------
   # 用户服务 :8081 —— 拥有 health_diet_user 库的 app_user 表
+  #
+  # 第 08 周：本服务以 **2 个实例** 运行（user-service + user-service-2），
+  # 用来验证 meal-service 的负载均衡。两个实例注册到 Nacos 的服务名相同
+  # （都是 user-service），靠不同的容器 IP 区分。
   # ---------------------------------------------------------------------------
   user-service:
     build:
       context: ./services/user-service
-    image: user-service:week07
+    image: user-service:week08
     container_name: hdt-user-service
     restart: unless-stopped
     ports:
+      # 只有 1 号实例发布宿主机端口（方便直接用浏览器/curl 调试）
       - "8081:8081"
     environment:
       SERVER_PORT: 8081
+      # 实例标识：会随响应体返回，调用方据此统计请求落在哪个实例上
+      APP_INSTANCE_ID: user-service-1
       DB_URL: >-
         jdbc:mysql://mysql:3306/health_diet_user?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       DB_USERNAME: svc_user
@@ -152,18 +159,65 @@ services:
       start_period: 40s
 
   # ---------------------------------------------------------------------------
+  # 用户服务（第 2 实例，第 08 周新增）
+  #
+  # 为什么【不写 ports】：
+  #   两个实例内部都监听 8081，如果再发布 "8081:8081" 会和 1 号实例抢宿主机端口。
+  #   容器之间走 hdt-net 用服务名访问，本来就不需要宿主机端口；
+  #   这也正好满足作业"避免实例绑定同一个宿主机端口"的要求。
+  # 用 expose 只是声明端口，不占用宿主机。
+  # ---------------------------------------------------------------------------
+  user-service-2:
+    build:
+      context: ./services/user-service
+    image: user-service:week08
+    container_name: hdt-user-service-2
+    restart: unless-stopped
+    expose:
+      - "8081"
+    environment:
+      SERVER_PORT: 8081
+      APP_INSTANCE_ID: user-service-2
+      DB_URL: >-
+        jdbc:mysql://mysql:3306/health_diet_user?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      DB_USERNAME: svc_user
+      DB_PASSWORD: ${USER_DB_PASSWORD}
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?请在 .env 中设置 NACOS_PASSWORD（与控制台初始化的一致）}
+      NACOS_GROUP: ${NACOS_GROUP:-PERSONAL_GROUP}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nacos:
+        condition: service_started
+    networks:
+      - hdt-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
   # 食物服务 :8082 —— 拥有 health_diet_food 库的 food 表
+  # 第 08 周同样以 2 个实例运行，与用户服务一起构成负载均衡的验证对象。
   # ---------------------------------------------------------------------------
   food-service:
     build:
       context: ./services/food-service
-    image: food-service:week07
+    image: food-service:week08
     container_name: hdt-food-service
     restart: unless-stopped
     ports:
+      # 同样只有 1 号实例发布宿主机端口
       - "8082:8082"
     environment:
       SERVER_PORT: 8082
+      APP_INSTANCE_ID: food-service-1
       DB_URL: >-
         jdbc:mysql://mysql:3306/health_diet_food?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       DB_USERNAME: svc_food
@@ -190,35 +244,76 @@ services:
       start_period: 40s
 
   # ---------------------------------------------------------------------------
+  # 食物服务（第 2 实例，第 08 周新增）—— 不发布宿主机端口，理由同 user-service-2
+  # ---------------------------------------------------------------------------
+  food-service-2:
+    build:
+      context: ./services/food-service
+    image: food-service:week08
+    container_name: hdt-food-service-2
+    restart: unless-stopped
+    expose:
+      - "8082"
+    environment:
+      SERVER_PORT: 8082
+      APP_INSTANCE_ID: food-service-2
+      DB_URL: >-
+        jdbc:mysql://mysql:3306/health_diet_food?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      DB_USERNAME: svc_food
+      DB_PASSWORD: ${FOOD_DB_PASSWORD}
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?请在 .env 中设置 NACOS_PASSWORD（与控制台初始化的一致）}
+      NACOS_GROUP: ${NACOS_GROUP:-PERSONAL_GROUP}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nacos:
+        condition: service_started
+    networks:
+      - hdt-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
   # 饮食记录服务 :8083 —— 拥有 health_diet_meal 库，并跨服务调用上面两个
   # ---------------------------------------------------------------------------
   meal-service:
     build:
       context: ./services/meal-service
-    image: meal-service:week07
+    image: meal-service:week08
     container_name: hdt-meal-service
     restart: unless-stopped
     ports:
       - "8083:8083"
     environment:
       SERVER_PORT: 8083
+      APP_INSTANCE_ID: meal-service-1
       DB_URL: >-
         jdbc:mysql://mysql:3306/health_diet_meal?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       DB_USERNAME: svc_meal
       DB_PASSWORD: ${MEAL_DB_PASSWORD}
-      # ---- 第 07 周：注册到 Nacos，并通过服务发现找另外两个服务 ----
+      # ---- 第 08 周：跨服务调用改用 OpenFeign ----
       #
-      # 注意：这里【已经删除】第 06 周的 USER_SERVICE_URL / FOOD_SERVICE_URL。
-      # 跨服务地址不再由配置写死，而是运行时用 DiscoveryClient 查 Nacos 得到，
-      # 这样服务扩容、换 IP、重启后都不需要改配置。
+      # 注意：这里【已经删除】第 06 周的 USER_SERVICE_URL / FOOD_SERVICE_URL，
+      # 第 07 周的 DiscoveryClient 手动寻址也已被 Feign 取代：
+      # Feign 接口里只写服务名（user-service / food-service），
+      # 由 Spring Cloud LoadBalancer 在每次调用时从 Nacos 的实例列表里挑一个，
+      # 因此下游扩容成 2 个实例也能自动分发，不需要改任何配置。
       NACOS_SERVER_ADDR: nacos:8848
       NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?请在 .env 中设置 NACOS_PASSWORD（与控制台初始化的一致）}
       NACOS_GROUP: ${NACOS_GROUP:-PERSONAL_GROUP}
       NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
-      # 超时保留：无论地址从哪来，RestTemplate 默认都是无限等待
-      SERVICE_CONNECT_TIMEOUT_MS: 2000
-      SERVICE_READ_TIMEOUT_MS: 3000
+      # Feign 的超时（毫秒）：默认值同样不友好，显式给出便于演示"依赖变慢"的场景
+      SERVICES_CONNECT_TIMEOUT_MS: 2000
+      SERVICES_READ_TIMEOUT_MS: 3000
       TZ: Asia/Shanghai
     depends_on:
       mysql:

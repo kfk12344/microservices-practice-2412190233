@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.zjgsu.hdt.food.config.InstanceIdentity;
 import com.zjgsu.hdt.food.dto.FoodRequest;
 import com.zjgsu.hdt.food.dto.FoodResponse;
 import com.zjgsu.hdt.food.service.FoodService;
@@ -29,8 +30,15 @@ public class FoodController {
 
     private final FoodService foodService;
 
-    public FoodController(FoodService foodService) {
+    /**
+     * 本实例标识（第 08 周）。注入它是为了让 {@code GET /api/foods/{id}} 能告诉调用方
+     * "这一次是哪台实例处理的"，从而验证负载均衡是否真的在多个实例之间分发。
+     */
+    private final InstanceIdentity instanceIdentity;
+
+    public FoodController(FoodService foodService, InstanceIdentity instanceIdentity) {
         this.foodService = foodService;
+        this.instanceIdentity = instanceIdentity;
     }
 
     /** 食物列表，可按分类过滤。 */
@@ -42,7 +50,8 @@ public class FoodController {
     /** 按 ID 查询单个食物；不存在返回 404。 */
     @GetMapping("/{id}")
     public FoodResponse getById(@PathVariable Long id) {
-        return foodService.findById(id);
+        // 带上实例标识：meal-service 用它统计请求实际落在哪个实例上
+        return foodService.findById(id).servedBy(instanceIdentity.id());
     }
 
     /** 新增食物，成功返回 201 与 Location。 */

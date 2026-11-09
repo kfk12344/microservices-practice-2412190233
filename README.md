@@ -540,6 +540,58 @@ bash scripts/smoke-test.sh
 **先检查 Nacos 控制台可访问**（`http://localhost:18080/index.html`，不是旧地址），
 再检查三个服务的健康接口。任何一项失败脚本都会返回非零退出码。
 
+### 6.8 服务通信与负载均衡（Week 08 · OpenFeign）
+
+第 08 周做了三件事，都在 `services/meal-service` 与 `compose.yaml` 里。
+
+**① 跨服务调用改成 OpenFeign**
+
+| 之前（Week 07） | 现在（Week 08） |
+|---|---|
+| `RestTemplate` + `DiscoveryClient` 手动拼地址 | `@FeignClient(name = "user-service")` 声明式接口 |
+| 地址在业务代码里手拼 | 服务名交给 LoadBalancer 解析 |
+
+```java
+@FeignClient(name = "user-service")
+public interface UserFeignApi {
+    @GetMapping("/api/users/{id}")
+    UserInfo getUser(@PathVariable("id") Long id);
+}
+```
+
+业务层仍然调用 `UserClient` / `FoodClient` 门面：Feign 抛的是 HTTP 异常，
+门面负责翻译成业务语义（404 → 400 `USER_NOT_FOUND`，连不上/无实例 → 503 `DEPENDENCY_UNAVAILABLE`）。
+
+**② 下游服务跑 2 个实例，不抢宿主端口**
+
+`user-service-2` 与 `food-service-2` 只写 `expose`，不写 `ports`：
+两个实例都要监听 8081/8082，再映射同一个宿主端口必然冲突；
+容器之间走 `hdt-net` 用服务名访问，本就不需要宿主端口。
+
+**③ 让"分发"可被验证**
+
+每个实例带 `APP_INSTANCE_ID`，被调用方在响应体里回报 `servedBy`；
+meal-service 记账后通过诊断端点暴露：
+
+```bash
+curl -s http://localhost:8083/api/meals/instances
+# {"food-service":{"food-service-1":8,"food-service-2":8},
+#  "user-service":{"user-service-1":4,"user-service-2":4}}
+```
+
+统计的是**真实业务调用**，不是注册列表 —— 作业明确要求"仅展示注册列表不算完成分发验证"。
+
+**端到端验证脚本**（仓库根目录）：
+
+```bash
+docker compose up -d --build
+bash scripts/e2e-test.sh
+```
+
+覆盖：跨服务下单、记录数一致、两个实例都收到请求、停一台仍可用、
+停全部返回 503 且不写库、恢复后可用。详见 `docs/service-communication.md`
+与 `docs/homework/week-08/index.md`。
+
 ## 七、数据库设计
 
 完整的表结构与约束说明见 **[docs/database.md](docs/database.md)**，建表脚本见
