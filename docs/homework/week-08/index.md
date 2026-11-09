@@ -233,6 +233,8 @@ bash scripts/e2e-test.sh
 
 截图：`screenshots/08-01-e2e-全流程通过.png`。
 
+> 截图怎么自己截、每张图里必须出现什么，见 **[`screenshots/README.md`](screenshots/README.md)**。
+
 ### 4.3 模拟依赖不可用
 
 e2e 脚本的第 3 段就是这件事：
