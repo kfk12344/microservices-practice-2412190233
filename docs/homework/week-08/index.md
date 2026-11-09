@@ -170,11 +170,14 @@ $ curl -s http://localhost:8083/api/meals/instances
 
 ### 运行命令
 
-```bash
+```powershell
 # 仓库根目录
 docker compose up -d --build
-bash scripts/e2e-test.sh
+powershell -ExecutionPolicy Bypass -File scripts\e2e-test.ps1
 ```
+
+> Linux / macOS / Git Bash 里直接用 `bash scripts/e2e-test.sh`（同一个脚本）。
+> Windows 上如果 `bash` 指向 WSL 转发器会报 `execvpe(/bin/bash) failed`，那就用上面的 `.ps1`。
 
 e2e 脚本会自动完成：连续下单、检查分发、停一台实例、停全部实例（期望 503）、恢复。
 
@@ -224,8 +227,8 @@ mvn -f services/meal-service/pom.xml test
 
 `scripts/e2e-test.sh`，**从仓库根目录运行**，13 项检查：
 
-```bash
-bash scripts/e2e-test.sh
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\e2e-test.ps1
 ```
 
 覆盖：服务就绪、8 次跨服务下单、记录数一致、两个实例都收到请求、
@@ -273,7 +276,7 @@ docker compose up -d --build
 docker compose ps
 
 # 4. 端到端验证
-bash scripts/e2e-test.sh
+powershell -ExecutionPolicy Bypass -File scripts\e2e-test.ps1
 ```
 
 | 服务 | 端口 |

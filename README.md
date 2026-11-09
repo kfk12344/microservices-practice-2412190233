@@ -583,9 +583,9 @@ curl -s http://localhost:8083/api/meals/instances
 
 **端到端验证脚本**（仓库根目录）：
 
-```bash
+```powershell
 docker compose up -d --build
-bash scripts/e2e-test.sh
+powershell -ExecutionPolicy Bypass -File scripts\e2e-test.ps1
 ```
 
 覆盖：跨服务下单、记录数一致、两个实例都收到请求、停一台仍可用、

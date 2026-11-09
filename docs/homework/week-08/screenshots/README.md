@@ -51,8 +51,11 @@ docker compose ps
 
 ```powershell
 cd C:\Users\31238\Documents\course-repo
-bash scripts/e2e-test.sh
+powershell -ExecutionPolicy Bypass -File scripts\e2e-test.ps1
 ```
+
+> Linux / macOS / Git Bash 里直接用 `bash scripts/e2e-test.sh`（同一个脚本）。
+> Windows 上如果 `bash` 指向 WSL 转发器会报 `execvpe(/bin/bash) failed`，那就用上面的 `.ps1`。
 
 **图里必须出现**：
 
@@ -224,7 +227,7 @@ git push origin main
 
 | 现象 | 原因 / 处理 |
 |---|---|
-| `bash` 找不到 | 本机 bash 在 `D:\Git\bin\bash.exe`，用完整路径，或把 `D:\Git\bin` 加进 PATH |
+| `execvpe(/bin/bash) failed` | PATH 上的 `bash` 是 WSL 转发器（没装发行版）。用 `powershell -ExecutionPolicy Bypass -File scripts\e2e-test.ps1`，或直接 `D:\Git\bin\bash.exe scripts/e2e-test.sh` |
 | curl 返回 400 `MALFORMED_REQUEST_BODY` | PowerShell 里 `-d "{\"...\"}"` 的引号会被吃掉。用 `--data-binary "@文件"` 的方式（上面给的写法） |
 | curl 返回 400 `portionGrams 不能为空` | 明细字段名是 `portionGrams`，不是 `grams` |
 | 统计里只有一个实例 | 打轮次数太少（轮询要看分布），或另一台没注册上 |
