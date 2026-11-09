@@ -70,46 +70,54 @@ powershell -ExecutionPolicy Bypass -File scripts\e2e-test.ps1
 
 ### 图 2 · `08-02-负载均衡分发证据.png`（对应小题 3「负载均衡验证」）
 
-**分两步，一张图里要有两个证据**：
+**只需要一条命令**（我已经把它写成了脚本，会自动打 8 轮再把证据排版好）：
 
 ```powershell
-# ① 先打几轮，让两个实例都接到请求
-for ($i=1; $i -le 8; $i++) {
-  curl.exe -s -o NUL -X POST http://localhost:8083/api/meals `
-    -H "Content-Type: application/json" `
-    --data-binary "@$env:TEMP\meal.json"
-}
+cd C:\Users\31238\Documents\course-repo
+powershell -ExecutionPolicy Bypass -File scripts\shot-lb.ps1
 ```
 
-> 上面的 `@$env:TEMP\meal.json` 需要先准备好请求体文件：
+跑完屏幕上会依次出现 5 段（大约一屏放得下）：
+
+```
+0. 前置检查          → meal-service 状态：UP
+1. 清空旧的命中统计   → DELETE /api/meals/instances -> 204（已清空）
+2. 连续下单 8 次      → 成功 8 次，失败 0 次
+3. 证据一：分发统计   → {"food-service":{"food-service-1":8,"food-service-2":8},
+                        "user-service":{"user-service-1":4,"user-service-2":4}}
+4. 证据二：docker ps  → hdt-user-service-2   8081/tcp          ← 只有容器内端口
+                       hdt-user-service     0.0.0.0:8081->8081  ← 1 号才占了宿主端口
+5. 结论             → [PASS] 请求确实被分发到两个实例上（不是只看注册列表）
+```
+
+**直接截这一屏就行**，`Win + Shift + S` → 框选 → 保存成
+`08-02-负载均衡分发证据.png` 覆盖到本目录。
+
+#### 为什么这张图能证明负载均衡
+
+图里有**两个独立证据**，缺一不可：
+
+| 证据 | 证明什么 |
+|---|---|
+| 第 3 段：两个实例的计数**都在增长** | 请求确实被分发到了两台实例（统计的是真实业务调用，不是注册列表） |
+| 第 4 段：2 号实例**只 expose 没占宿主端口** | 满足作业"避免实例绑定同一个宿主机端口"的要求 |
+
+> 只有第 3 段、没有第 4 段，会被质疑"两个实例是不是绑了同一个端口"；
+> 只有第 4 段、没有第 3 段，就退回成"只看注册列表"，作业明确不算分。
+
+#### 如果结论是 FAIL
+
+说明只落到了一个实例，按顺序查：
+
+1. 打开 `http://localhost:18080/next/`，分组选 `PERSONAL_GROUP`，
+   确认 `user-service`、`food-service` **各有 2 个实例**；
+2. 如果只有 1 个：`docker compose ps` 看 `hdt-user-service-2` / `hdt-food-service-2` 是否 healthy；
+   没起来就 `docker compose up -d`；
+3. 都健康但还是 FAIL：把 `-Rounds` 调大再试（轮询要看分布，次数太少可能碰巧只打到一台）：
 
 ```powershell
-$json = '{"userId":1,"mealType":"LUNCH","eatenAt":"2026-11-20T12:30:00","note":"截图用","items":[{"foodId":1,"portionGrams":100},{"foodId":3,"portionGrams":100}]}'
-[System.IO.File]::WriteAllText("$env:TEMP\meal.json", $json, (New-Object System.Text.UTF8Encoding($false)))
+powershell -ExecutionPolicy Bypass -File scripts\shot-lb.ps1 -Rounds 12
 ```
-
-```powershell
-# ② 看分发统计
-curl.exe -sS http://localhost:8083/api/meals/instances
-
-# ③ 看两个实例确实都在跑、且 2 号没占宿主端口
-docker ps --format "{{.Names}}  {{.Status}}  {{.Ports}}" | Select-String "user-service|food-service"
-```
-
-**图里必须出现**：
-
-- `curl -sS http://localhost:8083/api/meals/instances`
-- 返回的 JSON 里 **两个实例都出现**，例如
-  `{"food-service":{"food-service-1":8,"food-service-2":8},"user-service":{"user-service-1":4,"user-service-2":4}}`
-- `docker ps` 那行：`hdt-user-service-2` 的端口列只有 `8081/tcp`，**没有** `0.0.0.0:8081->8081`
-
-> 第 3 点很关键：它就是作业要求的"避免实例绑定同一个宿主机端口"。把这一行框进图里。
-
-**如果统计里只有一个实例**：说明另一台没注册上。先在
-`http://localhost:18080/next/`（分组选 `PERSONAL_GROUP`）确认 `user-service` 有 2 个实例，
-或者多打几轮（轮询需要次数才看得到分布）。
-
----
 
 ### 图 3 · `08-03-依赖不可用503.png`（对应「运行结果截图」小题 + 小题 4 的一半）
 
