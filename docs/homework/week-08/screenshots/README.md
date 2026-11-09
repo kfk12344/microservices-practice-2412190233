@@ -228,6 +228,8 @@ git push origin main
 | 小题 4「测试」→ 上传 1-5 张 | `08-01-e2e-全流程通过.png`、`08-03-依赖不可用503.png` |
 | 「运行结果截图」那一栏 | `08-03-依赖不可用503.png` |
 | 「代码截图」那一栏 | `08-04-OpenFeign客户端.png` |
+| 小题 3 补充（可选） | `08-05-compose-ps-双实例.png`（7 个容器的端口映射一览） |
+| 小题 1 补充（可选） | `08-06-文档结构.png`（`docs/service-communication.md` 与 `week-08/index.md` 都在） |
 
 ---
 
