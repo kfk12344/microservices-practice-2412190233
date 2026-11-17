@@ -7,12 +7,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.zjgsu.hdt.user.dto.UserRequest;
 import com.zjgsu.hdt.user.dto.UserResponse;
 import com.zjgsu.hdt.user.exception.ResourceNotFoundException;
+import com.zjgsu.hdt.user.model.AppUser;
+import com.zjgsu.hdt.user.repository.UserRepository;
 import com.zjgsu.hdt.user.service.UserService;
 
 /**
@@ -34,6 +37,12 @@ class UserServiceApplicationTests {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @Test
     @DisplayName("上下文能正常加载，且 data.sql 的种子数据已灌入")
@@ -62,22 +71,32 @@ class UserServiceApplicationTests {
     }
 
     @Test
-    @DisplayName("创建用户：能落库并可查回")
+    @DisplayName("创建用户：能落库并可查回，且口令只以 BCrypt 哈希存储")
     void createUserPersists() {
-        UserResponse created = userService.create(new UserRequest("carol", "卡罗尔", 1900));
+        UserResponse created = userService.create(
+                new UserRequest("carol", "卡罗尔", 1900, "Carol@1234", null));
 
         assertThat(created.id()).isNotNull();
         assertThat(created.username()).isEqualTo("carol");
+        assertThat(created.role()).isEqualTo("USER");
 
         UserResponse reloaded = userService.findById(created.id());
         assertThat(reloaded.displayName()).isEqualTo("卡罗尔");
         assertThat(userService.listAll()).hasSize(4);
+
+        AppUser saved = userRepository.findById(created.id()).orElseThrow();
+        assertThat(saved.getPasswordHash())
+                .as("库里必须是 BCrypt 哈希，不能是明文")
+                .startsWith("$2")
+                .isNotEqualTo("Carol@1234");
+        assertThat(passwordEncoder.matches("Carol@1234", saved.getPasswordHash())).isTrue();
     }
 
     @Test
     @DisplayName("创建用户：用户名重复时被拒绝")
     void createUserRejectsDuplicateUsername() {
-        assertThatThrownBy(() -> userService.create(new UserRequest("demo-user", "重复", 2000)))
+        assertThatThrownBy(() -> userService.create(
+                new UserRequest("demo-user", "重复", 2000, "Whatever@123", null)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("已存在");
     }

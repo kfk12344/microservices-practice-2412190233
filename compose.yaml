@@ -142,6 +142,12 @@ services:
       # 参与调用的服务必须同分组，否则互相查不到
       NACOS_GROUP: ${NACOS_GROUP:-PERSONAL_GROUP}
       NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
+      # ---- 第 09 周：JWT 签发与网关内部口令 ----
+      # JWT_SECRET 必须与 gateway-service 完全一致（同一把 HS256 密钥）
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET（至少 32 字节）}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
+      # 管理接口校验它，用来拒绝绕过网关的直连请求
+      GATEWAY_SECRET: ${GATEWAY_SECRET:?请在 .env 中设置 GATEWAY_SECRET}
       TZ: Asia/Shanghai
     depends_on:
       mysql:
@@ -187,6 +193,9 @@ services:
       NACOS_PASSWORD: ${NACOS_PASSWORD:?请在 .env 中设置 NACOS_PASSWORD（与控制台初始化的一致）}
       NACOS_GROUP: ${NACOS_GROUP:-PERSONAL_GROUP}
       NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET（至少 32 字节）}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
+      GATEWAY_SECRET: ${GATEWAY_SECRET:?请在 .env 中设置 GATEWAY_SECRET}
       TZ: Asia/Shanghai
     depends_on:
       mysql:
@@ -333,6 +342,60 @@ services:
       timeout: 5s
       retries: 12
       start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # API 网关 :8080 —— 第 09 周新增，整个系统唯一的对外入口
+  #
+  # 客户端只访问 http://localhost:8080，由网关按路径转发：
+  #   /api/auth/**   → user-service   （登录，白名单）
+  #   /api/users/**  → user-service
+  #   /api/admin/**  → user-service   （要求 JWT 里 role=ADMIN）
+  #   /api/foods/**  → food-service
+  #   /api/meals/**  → meal-service
+  #
+  # 路由表在 services/gateway-service/src/main/resources/application.yml，
+  # 服务名（lb://user-service）由 Nacos + LoadBalancer 在运行时解析。
+  #
+  # 端口冲突提醒：单体版本（monolith profile）也占 8080，两者不要同时启动。
+  # ---------------------------------------------------------------------------
+  gateway-service:
+    build:
+      context: ./services/gateway-service
+    image: gateway-service:week09
+    container_name: hdt-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: 8080
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?请在 .env 中设置 NACOS_PASSWORD（与控制台初始化的一致）}
+      NACOS_GROUP: ${NACOS_GROUP:-PERSONAL_GROUP}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-}
+      # 验签密钥必须与 user-service 完全一致
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET（至少 32 字节）}
+      # 网关转发时写入 X-Gateway-Secret，下游据此拒绝直连
+      GATEWAY_SECRET: ${GATEWAY_SECRET:?请在 .env 中设置 GATEWAY_SECRET}
+      TZ: Asia/Shanghai
+    depends_on:
+      # 等三个业务服务健康后再启动，减少"网关起来了但下游还没注册"的空窗
+      user-service:
+        condition: service_healthy
+      food-service:
+        condition: service_healthy
+      meal-service:
+        condition: service_healthy
+      nacos:
+        condition: service_started
+    networks:
+      - hdt-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   # ---------------------------------------------------------------------------
   # 单体版本（第 04/05 周）—— 放在 profile 下，默认不启动

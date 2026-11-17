@@ -10,7 +10,6 @@ server:
 spring:
   application:
     name: user-service
-
   # ---------------------------------------------------------------------------
   # 第 07 周：注册到 Nacos
   #
@@ -57,6 +56,24 @@ spring:
 
   jackson:
     default-property-inclusion: non_null
+
+# =============================================================================
+# 第 09 周：认证与授权配置
+#
+# JWT_SECRET 必须与 gateway-service 完全一致：本服务签发，网关验签，用的是一把
+# HS256 对称密钥。compose.yaml 从 .env 注入；这里的默认值只是本地开发的占位符，
+# 【不是真实密钥】，生产环境必须覆盖。
+#
+# GATEWAY_SECRET 是网关与下游之间的内部口令：网关转发时写入请求头
+# X-Gateway-Secret，管理接口校验它，用来拒绝绕过网关的直连请求。
+# =============================================================================
+app:
+  jwt:
+    secret: ${JWT_SECRET:local-dev-only-jwt-secret-change-me-32bytes}
+    issuer: user-service
+    ttl-seconds: ${JWT_TTL_SECONDS:3600}
+  gateway:
+    secret: ${GATEWAY_SECRET:local-dev-only-gateway-secret-change-me}
 
 management:
   endpoints:

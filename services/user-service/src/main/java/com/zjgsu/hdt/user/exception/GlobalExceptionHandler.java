@@ -25,6 +25,24 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiError> handleInvalidCredentials(InvalidCredentialsException ex,
+                                                             HttpServletRequest request) {
+        // 不打日志细节：登录失败可能包含口令尝试，日志里不该出现任何凭据
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                ApiError.of(401, "Unauthorized", InvalidCredentialsException.CODE, ex.getMessage(),
+                        request.getRequestURI())
+        );
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiError> handleForbidden(ForbiddenException ex, HttpServletRequest request) {
+        log.warn("拒绝访问 {}：{}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                ApiError.of(403, "Forbidden", ex.code(), ex.getMessage(), request.getRequestURI())
+        );
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiError> handleNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
         log.warn("资源不存在: {}", ex.getMessage());

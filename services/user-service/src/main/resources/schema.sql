@@ -9,14 +9,19 @@
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS app_user (
-    id                BIGINT      NOT NULL AUTO_INCREMENT,
-    username          VARCHAR(64) NOT NULL,
-    display_name      VARCHAR(64) NOT NULL,
-    daily_target_kcal INT         NOT NULL,
-    created_at        TIMESTAMP   NOT NULL,
+    id                BIGINT       NOT NULL AUTO_INCREMENT,
+    username          VARCHAR(64)  NOT NULL,
+    display_name      VARCHAR(64)  NOT NULL,
+    daily_target_kcal INT          NOT NULL,
+    -- 第 09 周：口令只存 BCrypt 哈希（60 字符左右，留 100 的余量），绝不存明文
+    password_hash     VARCHAR(100) NOT NULL,
+    -- 第 09 周：角色，用 CHECK 约束兜底，防止绕过应用层写入未知角色
+    role              VARCHAR(32)  NOT NULL DEFAULT 'USER',
+    created_at        TIMESTAMP    NOT NULL,
     PRIMARY KEY (id),
     -- 登录名唯一，用数据库唯一约束兜底，不只靠应用层检查
     CONSTRAINT uk_app_user_username UNIQUE (username),
     -- 目标热量必须为正，防止脏数据
-    CONSTRAINT ck_app_user_target CHECK (daily_target_kcal > 0)
+    CONSTRAINT ck_app_user_target CHECK (daily_target_kcal > 0),
+    CONSTRAINT ck_app_user_role CHECK (role IN ('USER', 'NUTRITIONIST', 'ADMIN'))
 );

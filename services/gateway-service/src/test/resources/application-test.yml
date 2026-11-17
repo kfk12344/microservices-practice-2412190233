@@ -1,0 +1,15 @@
+## =============================================================================
+## 网关测试配置：不连真实 Nacos，只验证过滤器与路由装配
+## =============================================================================
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+        register-enabled: false
+
+app:
+  jwt:
+    secret: test-only-gateway-jwt-secret-0123456789
+  gateway:
+    secret: test-only-gateway-secret

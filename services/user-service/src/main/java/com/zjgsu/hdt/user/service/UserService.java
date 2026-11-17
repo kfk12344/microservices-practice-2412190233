@@ -3,6 +3,7 @@ package com.zjgsu.hdt.user.service;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -10,6 +11,7 @@ import com.zjgsu.hdt.user.dto.UserRequest;
 import com.zjgsu.hdt.user.dto.UserResponse;
 import com.zjgsu.hdt.user.exception.ResourceNotFoundException;
 import com.zjgsu.hdt.user.model.AppUser;
+import com.zjgsu.hdt.user.model.UserRole;
 import com.zjgsu.hdt.user.repository.UserRepository;
 
 /**
@@ -22,9 +24,11 @@ import com.zjgsu.hdt.user.repository.UserRepository;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public UserService(UserRepository userRepository) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional(readOnly = true)
@@ -60,10 +64,14 @@ public class UserService {
         if (userRepository.existsByUsername(request.username())) {
             throw new IllegalArgumentException("用户名已存在：" + request.username());
         }
+        UserRole role = request.role() == null ? UserRole.USER : request.role();
         AppUser user = new AppUser(
                 request.username(),
                 request.displayName(),
                 request.dailyTargetKcal(),
+                // 口令只在这里出现一次：立刻算 BCrypt 哈希，明文不落库、不写日志
+                passwordEncoder.encode(request.password()),
+                role,
                 LocalDateTime.now()
         );
         return UserResponse.from(userRepository.save(user));

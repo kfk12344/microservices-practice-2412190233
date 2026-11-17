@@ -2,7 +2,7 @@
 
 > 课程：微服务实践 · 学号 2412190233 · 姓名 郑俊豪
 > 仓库：<https://github.com/kfk12344/microservices-practice-2412190233>
-> 当前进度：Week 02 选题与功能规划 → Week 03 Spring Boot 工程起步 → **Week 04 业务建模 + REST 接口 + MySQL 持久化**
+> 当前进度：Week 02 选题与功能规划 → ... → Week 08 服务通信与负载均衡 → **Week 09 API 网关 + JWT 认证**
 
 ---
 
@@ -591,6 +591,53 @@ powershell -ExecutionPolicy Bypass -File scripts\e2e-test.ps1
 覆盖：跨服务下单、记录数一致、两个实例都收到请求、停一台仍可用、
 停全部返回 503 且不写库、恢复后可用。详见 `docs/service-communication.md`
 与 `docs/homework/week-08/index.md`。
+
+### 6.9 API 网关与 JWT 认证（Week 09）
+
+新增 `services/gateway-service`（端口 **8080**），作为系统唯一对外入口；
+user-service 负责登录签发 JWT，网关负责验签与按角色放行。
+
+```bash
+# 1) 启动（会一并构建网关镜像）
+docker compose up -d --build
+
+# 从第 08 周的旧数据库卷升级时，先执行一次迁移（全新环境跳过）
+docker compose exec -T mysql sh -c \
+  'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot health_diet_user' \
+  < db/migrations/09-auth.sql
+
+# 2) 健康检查：网关 + Nacos 里注册的服务
+curl http://localhost:8080/api/health
+
+# 3) 登录拿 Token
+curl -s -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"demo-user","password":"Demo@1234"}'
+
+# 4) 带 Token 访问
+curl -H "Authorization: Bearer <token>" http://localhost:8080/api/users/1
+
+# 5) 自动验证（未登录 401 / 登录 200 / 越权 403 / 伪造头）
+bash scripts/auth-test.sh          # Windows: powershell -ExecutionPolicy Bypass -File scripts\auth-test.ps1
+```
+
+测试账号（数据库里只存 BCrypt 哈希）：
+
+| 用户名 | 口令 | 角色 |
+|---|---|---|
+| `demo-user` | `Demo@1234` | `USER` |
+| `alice` | `Diet@1234` | `NUTRITIONIST` |
+| `bob` | `Admin@1234` | `ADMIN` |
+
+路由表：`/api/auth/**`、`/api/users/**`、`/api/admin/**` → `user-service`；
+`/api/foods/**` → `food-service`；`/api/meals/**` → `meal-service`。
+其中 `/api/admin/**` 需要 `ADMIN` 角色。
+
+`JWT_SECRET` 与 `GATEWAY_SECRET` 从 `.env` 注入（见 `.env.example`），
+不写入仓库。设计细节与威胁模型见 **[docs/security.md](docs/security.md)**，
+本周说明见 **[docs/homework/week-09/index.md](docs/homework/week-09/index.md)**。
+
+> 注意：单体版本也占 8080，不要与网关同时启动。
 
 ## 七、数据库设计
 

@@ -5,6 +5,8 @@ import java.util.Objects;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -36,6 +38,21 @@ public class AppUser {
     @Column(name = "daily_target_kcal", nullable = false)
     private Integer dailyTargetKcal;
 
+    /**
+     * 口令的 <strong>BCrypt 哈希</strong>（第 09 周新增）。
+     *
+     * <p>库里只存哈希、不存明文：BCrypt 自带随机盐，同样的口令每次算出的结果都不同，
+     * 因此无法用"哈希相同"反推两个人用了同一个口令。校验只能走
+     * {@code BCryptPasswordEncoder.matches(明文, 哈希)}。
+     */
+    @Column(name = "password_hash", nullable = false, length = 100)
+    private String passwordHash;
+
+    /** 角色（第 09 周新增），以字符串形式落库，便于与 JWT 声明直接对应。 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role", nullable = false, length = 32)
+    private UserRole role;
+
     /** 建档时间。 */
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
@@ -44,10 +61,17 @@ public class AppUser {
     protected AppUser() {
     }
 
-    public AppUser(String username, String displayName, Integer dailyTargetKcal, LocalDateTime createdAt) {
+    public AppUser(String username,
+                   String displayName,
+                   Integer dailyTargetKcal,
+                   String passwordHash,
+                   UserRole role,
+                   LocalDateTime createdAt) {
         this.username = username;
         this.displayName = displayName;
         this.dailyTargetKcal = dailyTargetKcal;
+        this.passwordHash = passwordHash;
+        this.role = role;
         this.createdAt = createdAt;
     }
 
@@ -77,6 +101,22 @@ public class AppUser {
 
     public void setDailyTargetKcal(Integer dailyTargetKcal) {
         this.dailyTargetKcal = dailyTargetKcal;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
+
+    public UserRole getRole() {
+        return role;
+    }
+
+    public void setRole(UserRole role) {
+        this.role = role;
     }
 
     public LocalDateTime getCreatedAt() {

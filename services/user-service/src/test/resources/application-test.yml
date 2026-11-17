@@ -28,3 +28,12 @@ spring:
     init:
       mode: always
       encoding: UTF-8
+
+# 测试专用密钥：长度 ≥ 32 字节，只用于测试进程，与任何部署环境无关
+app:
+  jwt:
+    secret: test-only-jwt-secret-0123456789abcdef
+    issuer: user-service
+    ttl-seconds: 3600
+  gateway:
+    secret: test-only-gateway-secret
