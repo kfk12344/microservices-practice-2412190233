@@ -370,7 +370,7 @@ docker compose --profile monolith up -d --build
 各服务是独立的 Maven 工程，**分别**在其目录下运行：
 
 ```powershell
-# user-service（5 个测试）
+# user-service（12 个测试）
 cd services/user-service
 mvn test
 
@@ -378,7 +378,7 @@ mvn test
 cd services/food-service
 mvn test
 
-# meal-service（7 个测试，含跨服务流程与失败路径）
+# meal-service（10 个测试，含跨服务流程与失败路径）
 cd services/meal-service
 mvn test
 
@@ -517,7 +517,7 @@ spring:
 各服务测试**不依赖真实 Nacos、MySQL 或网络**（H2 + 寻址桩 + MockRestServiceServer）：
 
 ```powershell
-cd services/user-service && mvn test        # 5 个测试
+cd services/user-service && mvn test        # 12 个测试
 cd ../food-service     && mvn test          # 5 个测试
 cd ../meal-service     && mvn test          # 9 个测试（含 2 个"实例列表为空"用例）
 ```
@@ -638,6 +638,56 @@ bash scripts/auth-test.sh          # Windows: powershell -ExecutionPolicy Bypass
 本周说明见 **[docs/homework/week-09/index.md](docs/homework/week-09/index.md)**。
 
 > 注意：单体版本也占 8080，不要与网关同时启动。
+
+### 6.10 配置中心（Week 10 · Nacos Config）
+
+四个微服务都从 Nacos 读取各自的**非敏感**配置（日志级别、业务阈值、JWT 有效期等），
+口令与签名密钥继续只从 `.env` 注入，不进配置中心、不进仓库。
+
+#### 1) 本地环境变量设置
+
+```bash
+# Windows PowerShell
+Copy-Item .env.example .env
+# Git Bash / Linux / macOS
+cp .env.example .env
+```
+
+然后编辑 `.env`，把 `change-me-*` 占位符替换成自己的值。与本专题相关的键：
+
+| 变量 | 示例 | 说明 |
+|---|---|---|
+| `NACOS_GROUP` | `PERSONAL_GROUP` | 本项目的配置分组，与课堂示例隔离 |
+| `NACOS_NAMESPACE` | 留空 | 留空即 `public`；自定义时填命名空间 **ID** |
+| `NACOS_USERNAME` / `NACOS_PASSWORD` | `nacos` / 自设 | 与控制台首次初始化时设置的密码一致 |
+| `APP_ENV` | `dev` 或 `test` | 决定读取 `<服务名>-dev.yaml` 还是 `-test.yaml` |
+
+`.env` 已被 `.gitignore` 排除，提交前可用 `git check-ignore -v .env` 确认。
+
+#### 2) 启动与验证
+
+```bash
+docker compose up -d --build
+bash scripts/config-test.sh
+# Windows: powershell -ExecutionPolicy Bypass -File scripts\config-test.ps1
+```
+
+脚本会发布 dev/test 两套配置、检查四个服务是否真正读到 Nacos、
+演示 `max-kcal-per-meal` 从 1500 动态变为 1200（不重启服务），最后恢复原值。
+
+单点观察：
+
+```bash
+curl http://localhost:8083/api/config-probe
+# {"service":"meal-service","environment":"dev","configSource":"nacos",
+#  "dataId":"meal-service-dev.yaml","group":"PERSONAL_GROUP",...}
+```
+
+Data ID、Group、用途与完整配置示例见 **[docs/configuration.md](docs/configuration.md)**，
+交付说明与截图清单见 **[docs/homework/week-10/index.md](docs/homework/week-10/index.md)**。
+
+> 2025.x 已移除 bootstrap 机制，配置统一通过 `application.yml` 里的
+> `spring.config.import=nacos:...` 导入；不要新增 `bootstrap.yml`。
 
 ## 七、数据库设计
 

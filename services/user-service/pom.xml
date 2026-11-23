@@ -33,7 +33,8 @@
         Spring Cloud Alibaba 2025.1.0.0  →  Spring Cloud 2025.1.0  →  Spring Boot 4.0.x
       本项目 Spring Boot 4.0.8，正好落在 4.0.x 区间。
 
-      注意：本周只引入 Discovery Starter，不引入 Config Starter（配置中心用不上）。
+      第 10 周：在 Discovery 之外追加 Config Starter，配置通过 application.yml 的
+      spring.config.import=nacos:... 导入（2025.x 已移除 bootstrap 机制）。
     -->
     <dependencyManagement>
         <dependencies>
@@ -59,6 +60,11 @@
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!-- 第 10 周：配置中心。版本由上面的 Alibaba BOM 管理，不写死版本号 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

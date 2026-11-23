@@ -26,6 +26,19 @@ spring:
         register-enabled: ${NACOS_REGISTER_ENABLED:true}
         enabled: ${NACOS_DISCOVERY_ENABLED:true}
 
+      # ---------------------------------------------------------------------------
+      # 第 10 周：配置中心。日志级别等非敏感参数集中到 Nacos；
+      # 数据库口令仍由 .env 注入，不进配置中心。
+      # ---------------------------------------------------------------------------
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:PERSONAL_GROUP}
+        import-check:
+          enabled: true
+
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/health_diet_food?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
     username: ${DB_USERNAME:svc_food}
@@ -60,3 +73,20 @@ management:
 logging:
   level:
     com.zjgsu.hdt.food: INFO
+
+# 第 10 周：环境标识与配置来源（Nacos 里的值会覆盖 local 默认值）
+app:
+  environment: ${APP_ENV:dev}
+  config:
+    source: local
+
+---
+# -----------------------------------------------------------------------------
+# 第 10 周：Nacos Config 导入
+#   dev → food-service-dev.yaml ；test → food-service-test.yaml（APP_ENV=test）
+# -----------------------------------------------------------------------------
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "optional:nacos:${spring.application.name}-${APP_ENV:dev}.yaml?group=${NACOS_GROUP:PERSONAL_GROUP}&refreshEnabled=true"

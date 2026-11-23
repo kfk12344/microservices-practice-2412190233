@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.zjgsu.hdt.meal.client.FoodClient;
 import com.zjgsu.hdt.meal.client.FoodInfo;
 import com.zjgsu.hdt.meal.client.UserClient;
+import com.zjgsu.hdt.meal.config.MealRules;
 import com.zjgsu.hdt.meal.dto.MealItemRequest;
 import com.zjgsu.hdt.meal.dto.MealRequest;
 import com.zjgsu.hdt.meal.dto.MealResponse;
@@ -42,9 +43,6 @@ import com.zjgsu.hdt.meal.repository.MealRecordRepository;
 @Service
 public class MealRecordService {
 
-    /** 单次用餐热量上限（kcal），沿用第 04 周的业务规则 R3。 */
-    public static final int MAX_SINGLE_MEAL_KCAL = 1500;
-
     /** 规则编号，写进错误信息便于对照文档。 */
     private static final String RULE_SINGLE_MEAL_KCAL = "R3";
 
@@ -52,12 +50,22 @@ public class MealRecordService {
     private final UserClient userClient;
     private final FoodClient foodClient;
 
+    /**
+     * 第 10 周：单餐热量上限与业务开关改为从 Nacos 读取。
+     *
+     * <p>原来的硬编码常量 {@code MAX_SINGLE_MEAL_KCAL = 1500} 已移除；
+     * 现在改配置即可调整规则，配合 {@code @RefreshScope} 无需重新打包。
+     */
+    private final MealRules mealRules;
+
     public MealRecordService(MealRecordRepository mealRecordRepository,
                              UserClient userClient,
-                             FoodClient foodClient) {
+                             FoodClient foodClient,
+                             MealRules mealRules) {
         this.mealRecordRepository = mealRecordRepository;
         this.userClient = userClient;
         this.foodClient = foodClient;
+        this.mealRules = mealRules;
     }
 
     /**
@@ -69,6 +77,11 @@ public class MealRecordService {
      */
     @Transactional
     public MealResponse create(MealRequest request) {
+        // ---- ⓪ 业务开关也来自配置中心，关闭时直接拒绝，不触发任何跨服务调用 ----
+        if (!mealRules.createEnabled()) {
+            throw new BusinessRuleException("R0", "饮食记录功能已被配置中心临时关闭，请稍后再试");
+        }
+
         MealType mealType = MealType.from(request.mealType());
 
         // ---- ① 跨服务校验用户；不存在 → 400，不可用 → 503，都不写本地 ----
@@ -99,11 +112,12 @@ public class MealRecordService {
             totalCalories = totalCalories.add(calories);
         }
 
-        // ---- ④ 业务规则：单餐热量上限 ----
-        if (totalCalories.compareTo(BigDecimal.valueOf(MAX_SINGLE_MEAL_KCAL)) > 0) {
+        // ---- ④ 业务规则：单餐热量上限（阈值来自 Nacos，动态刷新） ----
+        int maxKcal = mealRules.maxKcalPerMeal();
+        if (totalCalories.compareTo(BigDecimal.valueOf(maxKcal)) > 0) {
             throw new BusinessRuleException(RULE_SINGLE_MEAL_KCAL,
                     "本次用餐热量 " + totalCalories.toPlainString() + " kcal 超过单餐上限 "
-                            + MAX_SINGLE_MEAL_KCAL + " kcal，请调整份量或拆分为多条记录");
+                            + maxKcal + " kcal，请调整份量或拆分为多条记录");
         }
 
         // ---- ⑤ 全部校验通过，才写入本地库 ----

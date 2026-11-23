@@ -59,8 +59,9 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String ADMIN_PREFIX = "/api/admin";
 
-    /** 无需 Token 的路径（健康检查与登录入口）。 */
-    private static final List<String> PUBLIC_PATHS = List.of("/api/auth/login", "/api/health");
+    /** 无需 Token 的路径（健康检查、登录入口与配置探针）。 */
+    private static final List<String> PUBLIC_PATHS =
+            List.of("/api/auth/login", "/api/health", "/api/config-probe");
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
@@ -132,7 +133,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         return chain.filter(exchange.mutate().request(builder.build()).build());
     }
 
-    /** 白名单判断：登录/健康检查精确匹配，Actuator 整棵路径放行。 */
+    /** 白名单判断：登录/健康检查/配置探针精确匹配，Actuator 整棵路径放行。 */
     private boolean isPublicPath(String path) {
         return PUBLIC_PATHS.contains(path)
                 || path.equals("/actuator")

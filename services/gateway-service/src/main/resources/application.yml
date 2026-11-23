@@ -26,6 +26,19 @@ spring:
         register-enabled: ${NACOS_REGISTER_ENABLED:true}
         enabled: ${NACOS_DISCOVERY_ENABLED:true}
 
+      # ---------------------------------------------------------------------------
+      # 第 10 周：配置中心。网关也从 Nacos 读取同一分组下的非敏感配置；
+      # 认证密钥仍只从 .env 注入，绝不写入配置中心。
+      # ---------------------------------------------------------------------------
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:PERSONAL_GROUP}
+        import-check:
+          enabled: true
+
     # -------------------------------------------------------------------------
     # 路由表：至少三条，目标一律写【服务名】而不是 IP。
     #
@@ -76,6 +89,9 @@ spring:
 # 默认值只是本地开发占位符，compose 会从 .env 覆盖。
 # =============================================================================
 app:
+  environment: ${APP_ENV:dev}
+  config:
+    source: local
   jwt:
     secret: ${JWT_SECRET:local-dev-only-jwt-secret-change-me-32bytes}
   gateway:
@@ -94,3 +110,14 @@ logging:
   level:
     com.zjgsu.hdt.gateway: INFO
     org.springframework.cloud.gateway: INFO
+
+---
+# -----------------------------------------------------------------------------
+# 第 10 周：Nacos Config 导入
+#   dev → gateway-service-dev.yaml ；test → gateway-service-test.yaml（APP_ENV=test）
+# -----------------------------------------------------------------------------
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "optional:nacos:${spring.application.name}-${APP_ENV:dev}.yaml?group=${NACOS_GROUP:PERSONAL_GROUP}&refreshEnabled=true"

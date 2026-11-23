@@ -7,6 +7,10 @@ spring:
       discovery:
         enabled: false
         register-enabled: false
+      # 第 10 周：测试不连配置中心，关闭 Config Starter 的 import 检查
+      config:
+        import-check:
+          enabled: false
 
 app:
   jwt:

@@ -27,6 +27,41 @@ spring:
         register-enabled: ${NACOS_REGISTER_ENABLED:true}
         enabled: ${NACOS_DISCOVERY_ENABLED:true}
 
+      # ---------------------------------------------------------------------------
+      # 第 10 周：配置中心（只放非敏感配置）
+      # 口令类信息继续留在 .env，不写进 Nacos 配置，也不写进仓库。
+      # 真正的导入语句在文件末尾 "!test" 文档里；test profile 不连 Nacos，
+      # 这样 mvn test 不需要外部依赖。
+      # ---------------------------------------------------------------------------
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:PERSONAL_GROUP}
+        # 2025.x 强制要求 spring.config.import，不再支持 bootstrap.yml
+        import-check:
+          enabled: true
+
+    # ---------------------------------------------------------------------------
+    # 第 08 周：OpenFeign 的超时必须单独配
+    #
+    # 两套超时不要混淆：
+    #   * openfeign.client.config.*  —— 现在真正生效的是这套（Feign 调用）
+    #   * services.*（见文件末尾）    —— 第 07 周留给 RestTemplate 的，现在只剩
+    #     被 meal.discovery.enabled 禁用的旧寻址实现会用
+    # 不配的话 Feign 走默认值（连接 10s / 读 60s），依赖卡住会占满请求线程。
+    # ---------------------------------------------------------------------------
+    # openfeign 是 spring.cloud 的子配置，与上面的 nacos 平级
+
+    openfeign:
+      client:
+        config:
+          default:
+            connectTimeout: ${SERVICE_CONNECT_TIMEOUT_MS:2000}
+            readTimeout: ${SERVICE_READ_TIMEOUT_MS:3000}
+            loggerLevel: basic
+
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/health_diet_meal?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
     username: ${DB_USERNAME:svc_meal}
@@ -77,3 +112,33 @@ logging:
     com.zjgsu.hdt.meal: INFO
     # 想看跨服务调用的实际请求与响应时，把下面这行放开
     # org.springframework.web.client.RestTemplate: DEBUG
+
+# -----------------------------------------------------------------------------
+# 第 10 周：可集中管理的业务参数
+#
+# 这里的默认值只是"Nacos 不可达时的兜底"，正常情况下由 Nacos 的
+# meal-service-{dev|test}.yaml 覆盖（configSource 会变成 nacos）。
+# 动态刷新观察点：app.meal.max-kcal-per-meal（@RefreshScope 的 MealRules Bean）。
+# -----------------------------------------------------------------------------
+app:
+  environment: ${APP_ENV:dev}
+  config:
+    source: local
+  meal:
+    max-kcal-per-meal: ${MEAL_MAX_KCAL_PER_MEAL:1500}
+    create-enabled: ${MEAL_CREATE_ENABLED:true}
+
+---
+# -----------------------------------------------------------------------------
+# 第 10 周：Nacos Config 导入
+#
+#   optional: —— Nacos 暂时不可达时服务仍能启动，用上面的本地兜底值；
+#               配置存在时会自动覆盖，configSource 变为 nacos。
+#   APP_ENV   —— dev（默认）/ test，由 compose.yaml 注入，决定读取哪个 Data ID。
+#   !test     —— 单元测试不导入 Nacos，mvn test 无需外部服务。
+# -----------------------------------------------------------------------------
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "optional:nacos:${spring.application.name}-${APP_ENV:dev}.yaml?group=${NACOS_GROUP:PERSONAL_GROUP}&refreshEnabled=true"

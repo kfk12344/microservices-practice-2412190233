@@ -31,6 +31,20 @@ spring:
         register-enabled: ${NACOS_REGISTER_ENABLED:true}
         enabled: ${NACOS_DISCOVERY_ENABLED:true}
 
+      # ---------------------------------------------------------------------------
+      # 第 10 周：配置中心。只集中管理非敏感配置（如 JWT 有效期、日志级别）；
+      # JWT_SECRET / DB_PASSWORD 等仍从 .env 注入，绝不写进 Nacos 配置。
+      # 导入语句见文件末尾的 "!test" 文档。
+      # ---------------------------------------------------------------------------
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:PERSONAL_GROUP}
+        import-check:
+          enabled: true
+
   datasource:
     # 数据库地址、账号、口令全部可被环境变量覆盖：
     #   本地调试用默认值；compose 里覆盖成 mysql:3306 / svc_user / .env 中的口令
@@ -68,9 +82,15 @@ spring:
 # X-Gateway-Secret，管理接口校验它，用来拒绝绕过网关的直连请求。
 # =============================================================================
 app:
+  # 第 10 周：环境标识与配置来源。Nacos 配置里的 app.config.source=nacos
+  # 会覆盖这里的 local 默认值，作为"配置确实来自 Nacos"的可观察证据。
+  environment: ${APP_ENV:dev}
+  config:
+    source: local
   jwt:
     secret: ${JWT_SECRET:local-dev-only-jwt-secret-change-me-32bytes}
     issuer: user-service
+    # 非敏感业务参数，可被 Nacos 的 user-service-{dev|test}.yaml 覆盖
     ttl-seconds: ${JWT_TTL_SECONDS:3600}
   gateway:
     secret: ${GATEWAY_SECRET:local-dev-only-gateway-secret-change-me}
@@ -87,3 +107,15 @@ management:
 logging:
   level:
     com.zjgsu.hdt.user: INFO
+
+---
+# -----------------------------------------------------------------------------
+# 第 10 周：Nacos Config 导入
+#   dev → user-service-dev.yaml ；test → user-service-test.yaml（APP_ENV=test）
+#   optional: 让 Nacos 暂时不可达时仍能启动；!test 让单元测试无需外部依赖。
+# -----------------------------------------------------------------------------
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "optional:nacos:${spring.application.name}-${APP_ENV:dev}.yaml?group=${NACOS_GROUP:PERSONAL_GROUP}&refreshEnabled=true"
